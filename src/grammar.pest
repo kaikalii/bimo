@@ -1,0 +1,58 @@
+WHITESPACE = _{ " " | "\t" | "\r" }
+ws = { WHITESPACE }
+single_line_comment = @{ "--" ~ (!NEWLINE ~ ANY)* ~ &(NEWLINE | EOI) }
+multi_line_comment = @{ "'''" ~ (!"'''" ~ ANY)* ~ ("'''" | &EOI) }
+COMMENT = _{ multi_line_comment | single_line_comment }
+keyword = { "and" | "or" | "end" }
+
+// Numbers
+int = @{ ("+" | "-")? ~ ASCII_DIGIT+ }
+real = @{ int ~ ("." ~ ASCII_DIGIT+) ~ (^"e" ~ int)? }
+
+// String literals
+string = ${ "\"" ~ (raw_string | "\\" ~ (predefined | byte | unicode))* ~ "\"" }
+raw_string = @{ (!("\\" | "\"") ~ ANY)+ }
+hex = _{ '0'..'9' | 'a'..'f' | 'A'..'F' }
+unicode_hex = @{ hex{1, 6} }
+predefined = { "n" | "r" | "t" | "\\" | "0" | "\"" | "'" }
+byte = @{ "x" ~ hex{2} }
+unicode = @{ "u" ~ "{" ~ unicode_hex ~ "}" }
+
+// Idents
+ident_init = _{ LETTER | OTHER_SYMBOL | "_" }
+ident_tail = _{ ident_init | DECIMAL_NUMBER | OTHER_NUMBER }
+ident_inner = @{ ident_init ~ ident_tail* }
+starts_with_keyword = @{ keyword ~ ("_"* ~ ident_tail+)+ }
+ident = { !keyword ~ ident_inner | starts_with_keyword | "_" }
+
+// Operators
+op_as = { "+" | "-" }
+op_mdr = { "*" | "/" | "%" }
+op_comp = { "==" | "!=" | "<=" | ">=" | "<" | ">" }
+op_and = { "and" }
+op_or = { "or" }
+op_neg = { "-" }
+
+// Expressions
+paren_expr = { "(" ~ NEWLINE? ~ items ~ NEWLINE? ~ ")" }
+param = { ident }
+closure_params = { (param | "|" ~ param*) ~ "|" }
+closure = { closure_params ~ (NEWLINE ~ items ~ "end" | expr ~ "end"?)}
+term = { real | int | closure | ident | string | paren_expr }
+call_args = { "(" ~ NEWLINE? ~ (expr ~ NEWLINE?)* ~ ")" }
+expr_call = { term ~ call_args? }
+expr_method_call = { expr_call ~ ("." ~ ident ~ call_args)* }
+expr_neg = { op_neg? ~ expr_method_call }
+expr_mdr = { expr_neg ~ (op_mdr ~ expr_neg)* }
+expr_as = { expr_mdr ~ (op_as ~ expr_mdr)* }
+expr_cmp = { expr_as ~ (op_comp ~ expr_as)* }
+expr_and = { expr_cmp ~ (NEWLINE? ~ op_and ~ NEWLINE? ~ expr_cmp)* }
+expr_or = { expr_and ~ (NEWLINE? ~ op_or ~ NEWLINE? ~ expr_and)* }
+expr = { expr_or }
+
+// Items
+equals = { "=" }
+def = { ident ~ ("(" ~ param* ~ ")")? ~ equals ~ (NEWLINE ~ items ~ "end" | expr) }
+item = { def | expr }
+items = { (item ~ NEWLINE*)+ }
+file = { SOI ~ NEWLINE* ~ items? ~ EOI }
