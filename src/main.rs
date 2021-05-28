@@ -1,6 +1,7 @@
 mod ast;
 mod builtin;
 mod parse;
+mod value;
 
 use clap::Clap;
 
