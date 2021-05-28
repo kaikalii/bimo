@@ -427,11 +427,16 @@ impl<'a> ParseState<'a> {
                     Term::Real(0.0)
                 }
             },
-            Rule::ident => {
-                let ident = self.ident(pair);
-                self.verify_ident(&ident);
-                Term::Ident(ident)
-            }
+            Rule::ident => match pair.as_str() {
+                "nil" => Term::Nil,
+                "true" => Term::Bool(true),
+                "false" => Term::Bool(false),
+                _ => {
+                    let ident = self.ident(pair);
+                    self.verify_ident(&ident);
+                    Term::Ident(ident)
+                }
+            },
             Rule::paren_expr => {
                 let pair = only(pair);
                 self.push_paren_scope();
@@ -442,6 +447,9 @@ impl<'a> ParseState<'a> {
             Rule::string => {
                 let string = self.string_literal(pair);
                 Term::String(string)
+            }
+            Rule::list_literal => {
+                Term::List(pair.into_inner().map(|pair| self.expr(pair)).collect())
             }
             Rule::closure => {
                 let span = pair.as_span();

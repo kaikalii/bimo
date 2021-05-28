@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, VecDeque},
     hash::{Hash, Hasher},
     mem::discriminant,
     rc::Rc,
@@ -18,7 +18,7 @@ pub enum Value {
     Real(f64),
     Tag(TagId),
     String(String),
-    List(Rc<Vec<Value>>),
+    List(Rc<VecDeque<Value>>),
     Entity(Rc<HashMap<Key, Value, seahash::State>>),
 }
 

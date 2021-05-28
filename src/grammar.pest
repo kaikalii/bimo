@@ -25,6 +25,9 @@ ident_inner = @{ ident_init ~ ident_tail* }
 starts_with_keyword = @{ keyword ~ ("_"* ~ ident_tail+)+ }
 ident = { !keyword ~ ident_inner | starts_with_keyword | "_" }
 
+// Container literals
+list_literal = { "[" ~ (expr ~ ","?)* ~ "]" }
+
 // Operators
 op_as = { "+" | "-" }
 op_mdr = { "*" | "/" | "%" }
@@ -38,10 +41,10 @@ paren_expr = { "(" ~ NEWLINE? ~ items ~ NEWLINE? ~ ")" }
 param = { ident }
 closure_params = { (param | "|" ~ param*) ~ "|" }
 closure = { closure_params ~ (NEWLINE ~ items ~ "end" | expr ~ "end"?)}
-term = { real | int | closure | ident | string | paren_expr }
+term = { real | int | closure | ident | string | paren_expr | list_literal }
 call_args = { "(" ~ NEWLINE? ~ (expr ~ ","? ~ NEWLINE?)* ~ ")" }
 expr_call = { term ~ call_args? }
-expr_method_call = { expr_call ~ ("." ~ ident ~ call_args)* }
+expr_method_call = { expr_call ~ (NEWLINE? ~ "." ~ ident ~ call_args)* }
 expr_neg = { op_neg? ~ expr_method_call }
 expr_mdr = { expr_neg ~ (op_mdr ~ expr_neg)* }
 expr_as = { expr_mdr ~ (op_as ~ expr_mdr)* }

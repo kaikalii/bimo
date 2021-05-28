@@ -153,11 +153,14 @@ pub struct PushExpr<'a> {
 
 #[derive(Debug, Clone)]
 pub enum Term<'a> {
+    Nil,
+    Bool(bool),
     Expr(Items<'a>),
     Int(i64),
     Real(f64),
     Ident(Ident<'a>),
     String(String),
+    List(Vec<Node<'a>>),
     Closure(Box<Closure<'a>>),
 }
 
