@@ -82,6 +82,8 @@ pub fn parse(input: &str) -> Result<Items, Vec<TranspileError>> {
                 input,
                 scopes: vec![FunctionScope::default()],
                 errors: Vec::new(),
+                tags: Default::default(),
+                next_tag_id: 0,
             };
             for (name, _) in crate::builtin::FUNCTIONS {
                 state.scope().bindings.insert(name, Binding::Builtin);
@@ -126,6 +128,8 @@ struct ParseState<'a> {
     input: &'a str,
     scopes: Vec<FunctionScope<'a>>,
     errors: Vec<TranspileError<'a>>,
+    tags: HashMap<&'a str, TagId>,
+    next_tag_id: TagId,
 }
 
 impl<'a> ParseState<'a> {
@@ -167,6 +171,13 @@ impl<'a> ParseState<'a> {
         self.scope()
             .bindings
             .insert(name, Binding::Unfinished(depth));
+    }
+    fn tag_id(&mut self, name: &'a str) -> TagId {
+        let next_tag_id = &mut self.next_tag_id;
+        *self.tags.entry(name).or_insert_with(|| {
+            *next_tag_id += 1;
+            *next_tag_id - 1
+        })
     }
     fn items(&mut self, pair: Pair<'a, Rule>) -> Items<'a> {
         let mut items = Vec::new();
@@ -451,6 +462,7 @@ impl<'a> ParseState<'a> {
             Rule::list_literal => {
                 Term::List(pair.into_inner().map(|pair| self.expr(pair)).collect())
             }
+            Rule::tag_literal => Term::Tag(self.tag_id(only(pair).as_str())),
             Rule::closure => {
                 let span = pair.as_span();
                 let mut pairs = pair.into_inner();

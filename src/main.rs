@@ -27,7 +27,7 @@ fn main() {
         }
     };
     let input = std::fs::read_to_string(main_path).unwrap();
-    let _items = match parse::parse(&input) {
+    let items = match parse::parse(&input) {
         Ok(items) => items,
         Err(errors) => {
             for error in errors {
@@ -44,6 +44,10 @@ fn main() {
     }
 
     println!("Execution model...");
+
+    for item in items {
+        println!("{:?}", item);
+    }
 }
 
 #[derive(Clap)]

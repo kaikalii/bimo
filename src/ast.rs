@@ -1,8 +1,13 @@
 #![allow(clippy::upper_case_acronyms)]
 
+use std::fmt;
+
 use pest::Span;
 
-#[derive(Debug, Clone)]
+pub type FieldId = u64;
+pub type TagId = u64;
+
+#[derive(Clone)]
 pub struct Ident<'a> {
     pub name: &'a str,
     pub span: Span<'a>,
@@ -17,6 +22,18 @@ impl<'a> Ident<'a> {
 impl<'a> PartialEq for Ident<'a> {
     fn eq(&self, other: &Self) -> bool {
         self.name == other.name
+    }
+}
+
+impl<'a> fmt::Debug for Ident<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        self.name.fmt(f)
+    }
+}
+
+impl<'a> fmt::Display for Ident<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        self.name.fmt(f)
     }
 }
 
@@ -159,6 +176,7 @@ pub enum Term<'a> {
     Int(i64),
     Real(f64),
     Ident(Ident<'a>),
+    Tag(TagId),
     String(String),
     List(Vec<Node<'a>>),
     Closure(Box<Closure<'a>>),

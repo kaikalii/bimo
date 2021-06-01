@@ -2,13 +2,10 @@
 
 use std::{
     collections::{HashMap, VecDeque},
-    hash::{Hash, Hasher},
-    mem::discriminant,
     rc::Rc,
 };
 
-pub type FieldId = u64;
-pub type TagId = u64;
+use crate::ast::{FieldId, TagId};
 
 #[derive(Debug, Clone)]
 pub enum Value {
@@ -27,19 +24,4 @@ pub enum Key {
     Field(FieldId),
     Int(i64),
     String(String),
-}
-
-#[allow(clippy::derive_hash_xor_eq)]
-impl Hash for Key {
-    fn hash<H>(&self, state: &mut H)
-    where
-        H: Hasher,
-    {
-        discriminant(self).hash(state);
-        match self {
-            Key::Field(id) => id.hash(state),
-            Key::Int(i) => i.hash(state),
-            Key::String(s) => s[..s.len().min(32)].hash(state),
-        }
-    }
 }
