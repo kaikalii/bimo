@@ -3,6 +3,8 @@ mod builtin;
 mod parse;
 mod value;
 
+use std::path::PathBuf;
+
 use clap::Clap;
 
 fn main() {
@@ -10,10 +12,21 @@ fn main() {
 
     color_backtrace::install();
 
-    let _app = App::parse();
+    let app = App::parse();
 
     // Parse and check
-    let input = std::fs::read_to_string("test.bimo").unwrap();
+    let main_path = if let Some(path) = app.target {
+        path
+    } else {
+        let path = PathBuf::from("main.bimo");
+        if path.exists() {
+            path
+        } else {
+            println!("No input file specified, and no \"main.bimo\" found");
+            exit(1);
+        }
+    };
+    let input = std::fs::read_to_string(main_path).unwrap();
     let _items = match parse::parse(&input) {
         Ok(items) => items,
         Err(errors) => {
@@ -24,18 +37,18 @@ fn main() {
         }
     };
     println!("Check succeeded");
+
+    // Run
+    if app.check {
+        return;
+    }
+
+    println!("Execution model...");
 }
 
 #[derive(Clap)]
 struct App {
-    #[clap(subcommand)]
-    _sub: Sub,
-}
-
-#[derive(Clap)]
-enum Sub {
-    #[clap(alias = "c")]
-    Check,
-    #[clap(alias = "r")]
-    Run,
+    target: Option<PathBuf>,
+    #[clap(short, long, about = "Check code validity without running")]
+    check: bool,
 }
