@@ -1,5 +1,6 @@
 mod ast;
 mod builtin;
+mod interpret;
 mod parse;
 mod value;
 
