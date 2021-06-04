@@ -1,5 +1,6 @@
 use std::{collections::HashMap, error::Error, fmt, mem::swap, rc::Rc};
 
+use itertools::Itertools;
 use pest::{
     error::{Error as PestError, ErrorVariant},
     Span,
@@ -7,8 +8,9 @@ use pest::{
 
 use crate::{
     ast::*,
+    num::Num,
     parse::{parse, CheckError, Ids, Rule},
-    value::{Function, Key, Value},
+    value::{Function, HashState, Key, Value},
 };
 
 pub type BimoFn = fn(&mut Runtime);
@@ -26,6 +28,9 @@ pub enum RuntimeErrorKind {
     },
     InvalidCall {
         called: String,
+    },
+    InvalidEntityDefault {
+        default: String,
     },
 }
 
@@ -52,6 +57,9 @@ impl fmt::Display for RuntimeErrorKind {
                 UnOp::Neg => write!(f, "Unable to negate {}", operand),
             },
             RuntimeErrorKind::InvalidCall { called } => write!(f, "Unable to call {}", called),
+            RuntimeErrorKind::InvalidEntityDefault { default } => {
+                write!(f, "Entity cannot be default initialized from {}", default)
+            }
         }
     }
 }
@@ -190,14 +198,15 @@ impl<'i> Runtime<'i> {
             Node::BinExpr(expr) => self.eval_bin_expr(expr),
             Node::UnExpr(expr) => self.eval_un_expr(expr),
             Node::Call(expr) => self.eval_call(expr),
+            Node::Access(expr) => self.eval_access_expr(expr),
         }
     }
     fn eval_term(&mut self, term: &Term<'i>) -> RuntimeResult<'i> {
         Ok(match term {
             Term::Nil => Value::Nil,
             Term::Bool(b) => Value::Bool(*b),
-            Term::Int(i) => Value::Int(*i),
-            Term::Real(r) => Value::Real(*r),
+            Term::Int(i) => Value::Num((*i).into()),
+            Term::Real(r) => Value::Num((*r).into()),
             Term::String(s) => Value::String(s.clone()),
             Term::List(nodes) => Value::List(Rc::new(
                 nodes
@@ -205,6 +214,49 @@ impl<'i> Runtime<'i> {
                     .map(|node| self.eval_node(node))
                     .collect::<Result<_, _>>()?,
             )),
+            Term::Entity { entries, default } => {
+                let mut map = HashMap::with_capacity_and_hasher(entries.len(), HashState);
+                for entry in entries {
+                    match entry {
+                        Entry::Tag(id) => map.insert(Key::Tag(*id), Value::Bool(true)),
+                        Entry::Field(id, node) => {
+                            map.insert(Key::Field(*id), self.eval_node(node)?)
+                        }
+                        Entry::Index(key, val) => {
+                            map.insert(Key::Value(self.eval_node(key)?), self.eval_node(val)?)
+                        }
+                    };
+                }
+                if let Some(node) = default {
+                    let span = node.span().clone();
+                    let default = self.eval_node(node)?;
+                    match default {
+                        Value::Nil => {}
+                        Value::Tag(id) => {
+                            map.insert(Key::Tag(id), Value::Bool(true));
+                        }
+                        Value::Entity(default_map) => match Rc::try_unwrap(default_map) {
+                            Ok(default_map) => {
+                                for (k, v) in default_map {
+                                    map.entry(k).or_insert(v);
+                                }
+                            }
+                            Err(default_map) => {
+                                for (k, v) in &*default_map {
+                                    map.entry(k.clone()).or_insert_with(|| v.clone());
+                                }
+                            }
+                        },
+                        val => {
+                            return Err(RuntimeErrorKind::InvalidEntityDefault {
+                                default: val.type_name().into(),
+                            }
+                            .span(span))
+                        }
+                    }
+                }
+                Value::Entity(Rc::new(map))
+            }
             Term::Expr(items) => {
                 self.scope.push(Scope::default());
                 let res = items
@@ -225,60 +277,34 @@ impl<'i> Runtime<'i> {
             })),
         })
     }
+    fn eval_access_expr(&mut self, _expr: &AccessExpr<'i>) -> RuntimeResult<'i> {
+        todo!()
+    }
     fn eval_bin_expr(&mut self, expr: &BinExpr<'i>) -> RuntimeResult<'i> {
         let left = self.eval_node(&expr.left)?;
-        let right = &expr.right;
-        let mut right = || self.eval_node(&right);
-        let (int, real) = match expr.op {
+        let mut right = || self.eval_node(&expr.right);
+        let bin_fn: BinFn = match expr.op {
             BinOp::Or => return if left.is_truthy() { Ok(left) } else { right() },
             BinOp::And => return if left.is_truthy() { right() } else { Ok(left) },
-            BinOp::Add => (
-                (|a, b| Value::Int(a + b)) as IntBinFn,
-                (|a, b| Value::Real(a + b)) as RealBinFn,
-            ),
-            BinOp::Sub => (
-                (|a, b| Value::Int(a - b)) as IntBinFn,
-                (|a, b| Value::Real(a - b)) as RealBinFn,
-            ),
-            BinOp::Mul => (
-                (|a, b| Value::Int(a * b)) as IntBinFn,
-                (|a, b| Value::Real(a * b)) as RealBinFn,
-            ),
-            BinOp::Div => (
-                (|a, b| Value::Int(a / b)) as IntBinFn,
-                (|a, b| Value::Real(a / b)) as RealBinFn,
-            ),
-            BinOp::Rem => (
-                (|a, b| Value::Int(a % b)) as IntBinFn,
-                (|a, b| Value::Real(a % b)) as RealBinFn,
-            ),
-            BinOp::Less => (
-                (|a, b| Value::Bool(a < b)) as IntBinFn,
-                (|a, b| Value::Bool(a < b)) as RealBinFn,
-            ),
-            BinOp::LessOrEqual => (
-                (|a, b| Value::Bool(a <= b)) as IntBinFn,
-                (|a, b| Value::Bool(a <= b)) as RealBinFn,
-            ),
-            BinOp::Greater => (
-                (|a, b| Value::Bool(a > b)) as IntBinFn,
-                (|a, b| Value::Bool(a > b)) as RealBinFn,
-            ),
-            BinOp::GreaterOrEqual => (
-                (|a, b| Value::Bool(a >= b)) as IntBinFn,
-                (|a, b| Value::Bool(a >= b)) as RealBinFn,
-            ),
+            BinOp::Add => |a, b| Value::Num(a + b),
+            BinOp::Sub => |a, b| Value::Num(a - b),
+            BinOp::Mul => |a, b| Value::Num(a * b),
+            BinOp::Div => |a, b| Value::Num(a / b),
+            BinOp::Rem => |a, b| Value::Num(a % b),
+            BinOp::Less => |a, b| Value::Bool(a < b),
+            BinOp::LessOrEqual => |a, b| Value::Bool(a <= b),
+            BinOp::Greater => |a, b| Value::Bool(a > b),
+            BinOp::GreaterOrEqual => |a, b| Value::Bool(a >= b),
             BinOp::Equals => return Ok(Value::Bool(left == right()?)),
             BinOp::NotEquals => return Ok(Value::Bool(left != right()?)),
         };
-        bin_op_impl(expr.op, left, right()?, &expr.span, int, real)
+        bin_op_impl(expr.op, left, right()?, &expr.span, bin_fn)
     }
     fn eval_un_expr(&mut self, expr: &UnExpr<'i>) -> RuntimeResult<'i> {
         let inner = self.eval_node(&expr.inner)?;
         Ok(match expr.op {
             UnOp::Neg => match inner {
-                Value::Int(i) => Value::Int(-i),
-                Value::Real(r) => Value::Real(-r),
+                Value::Num(n) => Value::Num(-n),
                 val => {
                     return Err(RuntimeErrorKind::InvalidUnaryOperation {
                         operand: val.type_name().into(),
@@ -317,22 +343,17 @@ impl<'i> Runtime<'i> {
     }
 }
 
-type IntBinFn<'i> = fn(i64, i64) -> Value<'i>;
-type RealBinFn<'i> = fn(f64, f64) -> Value<'i>;
+type BinFn<'i> = fn(Num, Num) -> Value<'i>;
 
 fn bin_op_impl<'i>(
     op: BinOp,
     left: Value<'i>,
     right: Value<'i>,
     span: &Span<'i>,
-    int: IntBinFn<'i>,
-    real: RealBinFn<'i>,
+    f: BinFn<'i>,
 ) -> RuntimeResult<'i> {
     Ok(match (left, right) {
-        (Value::Int(a), Value::Int(b)) => int(a, b),
-        (Value::Int(a), Value::Real(b)) => real(a as f64, b),
-        (Value::Real(a), Value::Int(b)) => real(a, b as f64),
-        (Value::Real(a), Value::Real(b)) => real(a, b),
+        (Value::Num(a), Value::Num(b)) => f(a, b),
         (a, b) => {
             return Err(RuntimeErrorKind::InvalidBinaryOperation {
                 left: a.type_name().into(),
@@ -349,13 +370,21 @@ pub struct ValueFormatter<'i, 'r> {
     runtime: &'r Runtime<'i>,
 }
 
+impl<'i, 'r> fmt::Debug for ValueFormatter<'i, 'r> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self.value {
+            Value::String(s) => s.fmt(f),
+            _ => write!(f, "{}", self),
+        }
+    }
+}
+
 impl<'i, 'r> fmt::Display for ValueFormatter<'i, 'r> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self.value {
             Value::Nil => "nil".fmt(f),
             Value::Bool(b) => b.fmt(f),
-            Value::Int(i) => i.fmt(f),
-            Value::Real(r) => r.fmt(f),
+            Value::Num(n) => n.fmt(f),
             Value::String(s) => s.fmt(f),
             Value::Tag(id) => {
                 write!(f, "#{}", self.runtime.ids.tag_name(*id))
@@ -372,16 +401,25 @@ impl<'i, 'r> fmt::Display for ValueFormatter<'i, 'r> {
             }
             Value::Entity(entity) => {
                 write!(f, "{{")?;
-                for (i, (key, val)) in entity.iter().enumerate() {
+                for (i, (key, val)) in entity.iter().sorted_by_key(|(key, _)| *key).enumerate() {
                     if i > 0 {
                         write!(f, ", ")?;
                     }
                     match key {
-                        Key::Field(id) => self.runtime.ids.ident_name(*id).fmt(f),
-                        Key::Int(i) => i.fmt(f),
-                        Key::String(s) => s.fmt(f),
-                    }?;
-                    write!(f, ": {}", self.runtime.format(val))?;
+                        Key::Field(id) => write!(
+                            f,
+                            "{}: {:?}",
+                            self.runtime.ids.ident_name(*id),
+                            self.runtime.format(val)
+                        )?,
+                        Key::Tag(id) => write!(f, "#{}", self.runtime.ids.tag_name(*id))?,
+                        Key::Value(key) => write!(
+                            f,
+                            "{:?} => {:?}",
+                            self.runtime.format(key),
+                            self.runtime.format(val)
+                        )?,
+                    }
                 }
                 write!(f, "}}")
             }
