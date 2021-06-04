@@ -24,6 +24,9 @@ pub enum RuntimeErrorKind {
         operand: String,
         op: UnOp,
     },
+    InvalidCall {
+        called: String,
+    },
 }
 
 impl RuntimeErrorKind {
@@ -48,6 +51,7 @@ impl fmt::Display for RuntimeErrorKind {
             RuntimeErrorKind::InvalidUnaryOperation { operand, op } => match op {
                 UnOp::Neg => write!(f, "Unable to negate {}", operand),
             },
+            RuntimeErrorKind::InvalidCall { called } => write!(f, "Unable to call {}", called),
         }
     }
 }
@@ -148,26 +152,26 @@ impl<'i> Runtime<'i> {
     }
     pub fn eval<'r>(&'r mut self, input: &'i str) -> Result<Value<'i>, EvalError<'i>> {
         let items = parse(self, input)?;
-        Ok(self.eval_items(items)?)
+        Ok(self.eval_items(&items)?)
     }
     pub fn check<'r>(&'r mut self, input: &'i str) -> Result<(), Vec<CheckError<'i>>> {
         parse(self, input)?;
         Ok(())
     }
-    fn eval_items(&mut self, items: Items<'i>) -> RuntimeResult<'i> {
+    fn eval_items(&mut self, items: &[Item<'i>]) -> RuntimeResult<'i> {
         let mut res = Value::Nil;
         for item in items {
             res = self.eval_item(item)?;
         }
         Ok(res)
     }
-    fn eval_item(&mut self, item: Item<'i>) -> RuntimeResult<'i> {
+    fn eval_item(&mut self, item: &Item<'i>) -> RuntimeResult<'i> {
         match item {
             Item::Node(node) => self.eval_node(node),
             Item::Def(def) => {
                 let id = self.ids.ident(def.ident.name);
                 let val = if def.params.is_empty() {
-                    self.eval_items(def.items)?
+                    self.eval_items(&def.items)?
                 } else {
                     Value::Function(Rc::new(Function {
                         scope: self.scope.clone(),
@@ -180,31 +184,31 @@ impl<'i> Runtime<'i> {
             }
         }
     }
-    fn eval_node(&mut self, node: Node<'i>) -> RuntimeResult<'i> {
+    fn eval_node(&mut self, node: &Node<'i>) -> RuntimeResult<'i> {
         match node {
             Node::Term(term, _) => self.eval_term(term),
             Node::BinExpr(expr) => self.eval_bin_expr(expr),
             Node::UnExpr(expr) => self.eval_un_expr(expr),
-            _ => todo!(),
+            Node::Call(expr) => self.eval_call(expr),
         }
     }
-    fn eval_term(&mut self, term: Term<'i>) -> RuntimeResult<'i> {
+    fn eval_term(&mut self, term: &Term<'i>) -> RuntimeResult<'i> {
         Ok(match term {
             Term::Nil => Value::Nil,
-            Term::Bool(b) => Value::Bool(b),
-            Term::Int(i) => Value::Int(i),
-            Term::Real(r) => Value::Real(r),
-            Term::String(s) => Value::String(s),
+            Term::Bool(b) => Value::Bool(*b),
+            Term::Int(i) => Value::Int(*i),
+            Term::Real(r) => Value::Real(*r),
+            Term::String(s) => Value::String(s.clone()),
             Term::List(nodes) => Value::List(Rc::new(
                 nodes
-                    .into_iter()
+                    .iter()
                     .map(|node| self.eval_node(node))
                     .collect::<Result<_, _>>()?,
             )),
             Term::Expr(items) => {
                 self.scope.push(Scope::default());
                 let res = items
-                    .into_iter()
+                    .iter()
                     .map(|item| self.eval_item(item))
                     .last()
                     .transpose()?
@@ -212,7 +216,7 @@ impl<'i> Runtime<'i> {
                 self.scope.pop();
                 res
             }
-            Term::Tag(id) => Value::Tag(id),
+            Term::Tag(id) => Value::Tag(*id),
             Term::Ident(ident) => self.scope.values[&ident.id].clone(),
             Term::Closure(closure) => Value::Function(Rc::new(Function {
                 scope: self.scope.clone(),
@@ -221,10 +225,10 @@ impl<'i> Runtime<'i> {
             })),
         })
     }
-    fn eval_bin_expr(&mut self, expr: BinExpr<'i>) -> RuntimeResult<'i> {
-        let left = self.eval_node(*expr.left)?;
-        let right = *expr.right;
-        let right = || self.eval_node(right);
+    fn eval_bin_expr(&mut self, expr: &BinExpr<'i>) -> RuntimeResult<'i> {
+        let left = self.eval_node(&expr.left)?;
+        let right = &expr.right;
+        let mut right = || self.eval_node(&right);
         let (int, real) = match expr.op {
             BinOp::Or => return if left.is_truthy() { Ok(left) } else { right() },
             BinOp::And => return if left.is_truthy() { right() } else { Ok(left) },
@@ -267,10 +271,10 @@ impl<'i> Runtime<'i> {
             BinOp::Equals => return Ok(Value::Bool(left == right()?)),
             BinOp::NotEquals => return Ok(Value::Bool(left != right()?)),
         };
-        bin_op_impl(expr.op, left, right()?, expr.span, int, real)
+        bin_op_impl(expr.op, left, right()?, &expr.span, int, real)
     }
-    fn eval_un_expr(&mut self, expr: UnExpr<'i>) -> RuntimeResult<'i> {
-        let inner = self.eval_node(*expr.inner)?;
+    fn eval_un_expr(&mut self, expr: &UnExpr<'i>) -> RuntimeResult<'i> {
+        let inner = self.eval_node(&expr.inner)?;
         Ok(match expr.op {
             UnOp::Neg => match inner {
                 Value::Int(i) => Value::Int(-i),
@@ -285,6 +289,32 @@ impl<'i> Runtime<'i> {
             },
         })
     }
+    fn eval_call(&mut self, expr: &CallExpr<'i>) -> RuntimeResult<'i> {
+        let caller = self.eval_node(&expr.caller)?;
+        Ok(match caller {
+            Value::Function(function) => {
+                let mut call_scope = function.scope.clone();
+                for (i, param) in function.params.iter().enumerate() {
+                    let val = if let Some(node) = expr.args.get(i) {
+                        self.eval_node(node)?
+                    } else {
+                        Value::Nil
+                    };
+                    call_scope.values.insert(param.ident.id, val);
+                }
+                swap(&mut self.scope, &mut call_scope);
+                let val = self.eval_items(&function.items)?;
+                swap(&mut self.scope, &mut call_scope);
+                val
+            }
+            val => {
+                return Err(RuntimeErrorKind::InvalidCall {
+                    called: val.type_name().into(),
+                }
+                .span(expr.span.clone()))
+            }
+        })
+    }
 }
 
 type IntBinFn<'i> = fn(i64, i64) -> Value<'i>;
@@ -294,7 +324,7 @@ fn bin_op_impl<'i>(
     op: BinOp,
     left: Value<'i>,
     right: Value<'i>,
-    span: Span<'i>,
+    span: &Span<'i>,
     int: IntBinFn<'i>,
     real: RealBinFn<'i>,
 ) -> RuntimeResult<'i> {
@@ -309,7 +339,7 @@ fn bin_op_impl<'i>(
                 right: b.type_name().into(),
                 op,
             }
-            .span(span))
+            .span(span.clone()))
         }
     })
 }

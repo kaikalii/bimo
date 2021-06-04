@@ -1,6 +1,6 @@
 #![allow(clippy::upper_case_acronyms)]
 
-use std::fmt;
+use std::{fmt, rc::Rc};
 
 use pest::Span;
 
@@ -150,7 +150,7 @@ impl<'i> UnExpr<'i> {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub enum UnOp {
     Neg,
 }
@@ -178,7 +178,7 @@ pub enum Term<'i> {
     Real(f64),
     Ident(Ident<'i>),
     Tag(TagId),
-    String(String),
+    String(Rc<str>),
     List(Vec<Node<'i>>),
     Closure(Box<Closure<'i>>),
 }

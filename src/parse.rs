@@ -484,7 +484,7 @@ impl<'i, 'r> ParseState<'i, 'r> {
             }
             Rule::string => {
                 let string = self.string_literal(pair);
-                Term::String(string)
+                Term::String(string.into())
             }
             Rule::list_literal => {
                 Term::List(pair.into_inner().map(|pair| self.expr(pair)).collect())

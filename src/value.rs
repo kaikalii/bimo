@@ -17,7 +17,7 @@ pub enum Value<'i> {
     Int(i64),
     Real(f64),
     Tag(TagId),
-    String(String),
+    String(Rc<str>),
     List(Rc<VecDeque<Value<'i>>>),
     Entity(Rc<HashMap<Key, Value<'i>>>),
     Function(Rc<Function<'i>>),
