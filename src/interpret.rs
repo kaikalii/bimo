@@ -20,6 +20,10 @@ pub enum RuntimeErrorKind {
         right: String,
         op: BinOp,
     },
+    InvalidUnaryOperation {
+        operand: String,
+        op: UnOp,
+    },
 }
 
 impl RuntimeErrorKind {
@@ -40,6 +44,9 @@ impl fmt::Display for RuntimeErrorKind {
                     write!(f, "Unable to compare {} and {}", left, right)
                 }
                 _ => todo!(),
+            },
+            RuntimeErrorKind::InvalidUnaryOperation { operand, op } => match op {
+                UnOp::Neg => write!(f, "Unable to negate {}", operand),
             },
         }
     }
@@ -177,6 +184,7 @@ impl<'i> Runtime<'i> {
         match node {
             Node::Term(term, _) => self.eval_term(term),
             Node::BinExpr(expr) => self.eval_bin_expr(expr),
+            Node::UnExpr(expr) => self.eval_un_expr(expr),
             _ => todo!(),
         }
     }
@@ -260,6 +268,22 @@ impl<'i> Runtime<'i> {
             BinOp::NotEquals => return Ok(Value::Bool(left != right()?)),
         };
         bin_op_impl(expr.op, left, right()?, expr.span, int, real)
+    }
+    fn eval_un_expr(&mut self, expr: UnExpr<'i>) -> RuntimeResult<'i> {
+        let inner = self.eval_node(*expr.inner)?;
+        Ok(match expr.op {
+            UnOp::Neg => match inner {
+                Value::Int(i) => Value::Int(-i),
+                Value::Real(r) => Value::Real(-r),
+                val => {
+                    return Err(RuntimeErrorKind::InvalidUnaryOperation {
+                        operand: val.type_name().into(),
+                        op: expr.op,
+                    }
+                    .span(expr.span.clone()))
+                }
+            },
+        })
     }
 }
 
