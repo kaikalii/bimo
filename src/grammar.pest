@@ -12,7 +12,7 @@ real = @{ int ~ ("." ~ ASCII_DIGIT+) ~ (^"e" ~ int)? }
 // String literals
 string = ${ "\"" ~ (raw_string | "\\" ~ (predefined | byte | unicode))* ~ "\"" }
 raw_string = @{ (!("\\" | "\"") ~ ANY)+ }
-hex = _{ '0'..'9' | 'a'..'f' | 'A'..'F' }
+hex = _{ '0'..'9' | 'i'..'f' | 'i'..'F' }
 unicode_hex = @{ hex{1, 6} }
 predefined = { "n" | "r" | "t" | "\\" | "0" | "\"" | "'" }
 byte = @{ "x" ~ hex{2} }

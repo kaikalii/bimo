@@ -11,12 +11,18 @@ use clap::Clap;
 fn main() {
     use std::process::*;
 
+    use crate::interpret::Runtime;
+
     color_backtrace::install();
 
     let app = App::parse();
 
     // Parse and check
     let main_path = if let Some(path) = app.target {
+        if !path.exists() {
+            println!("input file \"{}\" does not exist", path.to_string_lossy());
+            exit(1);
+        }
         path
     } else {
         let path = PathBuf::from("main.bimo");
@@ -28,26 +34,26 @@ fn main() {
         }
     };
     let input = std::fs::read_to_string(main_path).unwrap();
-    let items = match parse::parse(&input) {
-        Ok(items) => items,
-        Err(errors) => {
+
+    let mut runtime = Runtime::new();
+
+    if app.check {
+        if let Err(errors) = runtime.check(&input) {
             for error in errors {
                 println!("{}", error)
             }
             exit(1);
+        } else {
+            println!("Check succeeded");
         }
-    };
-    println!("Check succeeded");
-
-    // Run
-    if app.check {
-        return;
-    }
-
-    println!("Execution model...");
-
-    for item in items {
-        println!("{:?}", item);
+    } else {
+        match runtime.eval(&input) {
+            Ok(val) => println!("{}", runtime.format(&val)),
+            Err(e) => {
+                println!("{}", e);
+                exit(1);
+            }
+        }
     }
 }
 

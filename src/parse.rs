@@ -2,6 +2,7 @@
 
 use std::{collections::HashMap, fmt};
 
+use bimap::BiMap;
 use itertools::Itertools;
 use pest::{
     error::{Error as PestError, ErrorVariant},
@@ -9,41 +10,41 @@ use pest::{
     Parser, RuleType, Span,
 };
 
-use crate::ast::*;
+use crate::{ast::*, interpret::Runtime};
 
 #[derive(Debug)]
-pub enum TranspileError<'a> {
-    UnknownDef(Ident<'a>),
+pub enum CheckError<'i> {
+    UnknownDef(Ident<'i>),
     Parse(PestError<Rule>),
-    InvalidLiteral(Span<'a>),
-    DefUnderscoreTerminus(Span<'a>),
-    FunctionNamedUnderscore(Span<'a>),
-    ForbiddenRedefinition(Ident<'a>),
-    LastItemNotExpression(Span<'a>),
+    InvalidLiteral(Span<'i>),
+    DefUnderscoreTerminus(Span<'i>),
+    FunctionNamedUnderscore(Span<'i>),
+    ForbiddenRedefinition(Ident<'i>),
+    LastItemNotExpression(Span<'i>),
 }
 
-impl<'a> fmt::Display for TranspileError<'a> {
+impl<'i> fmt::Display for CheckError<'i> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            TranspileError::UnknownDef(ident) => format_span(
+            CheckError::UnknownDef(ident) => format_span(
                 format!("Unknown def: {:?}", ident.name),
                 ident.span.clone(),
                 f,
             ),
-            TranspileError::Parse(e) => e.fmt(f),
-            TranspileError::InvalidLiteral(span) => format_span("Invalid literal", span.clone(), f),
-            TranspileError::DefUnderscoreTerminus(span) => {
+            CheckError::Parse(e) => e.fmt(f),
+            CheckError::InvalidLiteral(span) => format_span("Invalid literal", span.clone(), f),
+            CheckError::DefUnderscoreTerminus(span) => {
                 format_span("Def names may not start or end with '_'", span.clone(), f)
             }
-            TranspileError::FunctionNamedUnderscore(span) => {
+            CheckError::FunctionNamedUnderscore(span) => {
                 format_span("Function cannot be named '_'", span.clone(), f)
             }
-            TranspileError::ForbiddenRedefinition(ident) => format_span(
+            CheckError::ForbiddenRedefinition(ident) => format_span(
                 format!("{} cannot be redefined", ident.name),
                 ident.span.clone(),
                 f,
             ),
-            TranspileError::LastItemNotExpression(span) => format_span(
+            CheckError::LastItemNotExpression(span) => format_span(
                 "The last item in a block must be an expression",
                 span.clone(),
                 f,
@@ -75,15 +76,17 @@ static FORBIDDEN_REDIFINITIONS: &[&str] = &["nil", "true", "false"];
 #[grammar = "grammar.pest"]
 struct KinParser;
 
-pub fn parse(input: &str) -> Result<Items, Vec<TranspileError>> {
+pub(crate) fn parse<'i, 'r>(
+    runtime: &'r mut Runtime<'i>,
+    input: &'i str,
+) -> Result<Items<'i>, Vec<CheckError<'i>>> {
     match KinParser::parse(Rule::file, input) {
         Ok(mut pairs) => {
             let mut state = ParseState {
                 input,
                 scopes: vec![FunctionScope::default()],
                 errors: Vec::new(),
-                tags: Default::default(),
-                next_tag_id: 0,
+                ids: &mut runtime.ids,
             };
             for (name, _) in crate::builtin::FUNCTIONS {
                 state.scope().bindings.insert(name, Binding::Builtin);
@@ -95,28 +98,28 @@ pub fn parse(input: &str) -> Result<Items, Vec<TranspileError>> {
                 Err(state.errors)
             }
         }
-        Err(e) => Err(vec![TranspileError::Parse(e)]),
+        Err(e) => Err(vec![CheckError::Parse(e)]),
     }
 }
 
 #[derive(Debug, Clone)]
-enum Binding<'a> {
-    Def(Def<'a>),
+enum Binding<'i> {
+    Def(Def<'i>),
     Param(u8),
     Builtin,
     Unfinished(u8),
 }
 
 #[derive(Default)]
-struct ParenScope<'a> {
-    bindings: HashMap<&'a str, Binding<'a>>,
+struct ParenScope<'i> {
+    bindings: HashMap<&'i str, Binding<'i>>,
 }
 
-struct FunctionScope<'a> {
-    scopes: Vec<ParenScope<'a>>,
+struct FunctionScope<'i> {
+    scopes: Vec<ParenScope<'i>>,
 }
 
-impl<'a> Default for FunctionScope<'a> {
+impl<'i> Default for FunctionScope<'i> {
     fn default() -> Self {
         FunctionScope {
             scopes: vec![ParenScope::default()],
@@ -124,15 +127,45 @@ impl<'a> Default for FunctionScope<'a> {
     }
 }
 
-struct ParseState<'a> {
-    input: &'a str,
-    scopes: Vec<FunctionScope<'a>>,
-    errors: Vec<TranspileError<'a>>,
-    tags: HashMap<&'a str, TagId>,
-    next_tag_id: TagId,
+#[derive(Clone, Default)]
+pub struct Ids<'i> {
+    tags: BiMap<&'i str, TagId>,
+    idents: BiMap<&'i str, IdentId>,
+    next_tag: TagId,
+    next_ident: IdentId,
 }
 
-impl<'a> ParseState<'a> {
+impl<'i> Ids<'i> {
+    pub fn ident(&mut self, name: &'i str) -> IdentId {
+        if !self.idents.contains_left(name) {
+            self.idents.insert(name, self.next_ident);
+            self.next_ident += 1;
+        }
+        *self.idents.get_by_left(name).unwrap()
+    }
+    pub fn tag(&mut self, name: &'i str) -> TagId {
+        if !self.tags.contains_left(name) {
+            self.tags.insert(name, self.next_tag);
+            self.next_tag += 1;
+        }
+        *self.tags.get_by_left(name).unwrap()
+    }
+    pub fn ident_name(&self, id: IdentId) -> &'i str {
+        self.idents.get_by_right(&id).unwrap()
+    }
+    pub fn tag_name(&self, id: TagId) -> &'i str {
+        self.tags.get_by_right(&id).unwrap()
+    }
+}
+
+pub struct ParseState<'i, 'r> {
+    input: &'i str,
+    scopes: Vec<FunctionScope<'i>>,
+    errors: Vec<CheckError<'i>>,
+    ids: &'r mut Ids<'i>,
+}
+
+impl<'i, 'r> ParseState<'i, 'r> {
     fn push_function_scope(&mut self) {
         self.scopes.push(FunctionScope::default());
     }
@@ -145,41 +178,34 @@ impl<'a> ParseState<'a> {
     fn pop_paren_scope(&mut self) {
         self.function_scope().scopes.pop();
     }
-    fn function_scope(&mut self) -> &mut FunctionScope<'a> {
+    fn function_scope(&mut self) -> &mut FunctionScope<'i> {
         self.scopes.last_mut().unwrap()
     }
-    fn scope(&mut self) -> &mut ParenScope<'a> {
+    fn scope(&mut self) -> &mut ParenScope<'i> {
         self.function_scope().scopes.last_mut().unwrap()
     }
-    fn span(&self, start: usize, end: usize) -> Span<'a> {
+    fn span(&self, start: usize, end: usize) -> Span<'i> {
         Span::new(self.input, start, end).unwrap()
     }
     fn depth(&self) -> u8 {
         self.scopes.len() as u8
     }
-    fn bind_def(&mut self, def: Def<'a>) {
+    fn bind_def(&mut self, def: Def<'i>) {
         self.scope()
             .bindings
             .insert(def.ident.name, Binding::Def(def));
     }
-    fn bind_param(&mut self, name: &'a str) {
+    fn bind_param(&mut self, name: &'i str) {
         let depth = self.depth() - 1;
         self.scope().bindings.insert(name, Binding::Param(depth));
     }
-    fn bind_unfinished(&mut self, name: &'a str) {
+    fn bind_unfinished(&mut self, name: &'i str) {
         let depth = self.depth();
         self.scope()
             .bindings
             .insert(name, Binding::Unfinished(depth));
     }
-    fn tag_id(&mut self, name: &'a str) -> TagId {
-        let next_tag_id = &mut self.next_tag_id;
-        *self.tags.entry(name).or_insert_with(|| {
-            *next_tag_id += 1;
-            *next_tag_id - 1
-        })
-    }
-    fn items(&mut self, pair: Pair<'a, Rule>) -> Items<'a> {
+    fn items(&mut self, pair: Pair<'i, Rule>) -> Items<'i> {
         let mut items = Vec::new();
         for pair in pair.into_inner() {
             match pair.as_rule() {
@@ -190,14 +216,13 @@ impl<'a> ParseState<'a> {
         }
         if let Some(last_item) = items.last() {
             if self.depth() > 1 && !matches!(last_item, Item::Node(_)) {
-                self.errors.push(TranspileError::LastItemNotExpression(
-                    last_item.span().clone(),
-                ));
+                self.errors
+                    .push(CheckError::LastItemNotExpression(last_item.span().clone()));
             }
         }
         items
     }
-    fn item(&mut self, pair: Pair<'a, Rule>) -> Item<'a> {
+    fn item(&mut self, pair: Pair<'i, Rule>) -> Item<'i> {
         let pair = only(pair);
         match pair.as_rule() {
             Rule::expr => Item::Node(self.expr(pair)),
@@ -205,29 +230,33 @@ impl<'a> ParseState<'a> {
             rule => unreachable!("{:?}", rule),
         }
     }
-    fn ident(&mut self, pair: Pair<'a, Rule>) -> Ident<'a> {
+    fn ident(&mut self, pair: Pair<'i, Rule>) -> Ident<'i> {
         let name = pair.as_str();
         let span = pair.as_span();
         if (name.starts_with('_') || name.ends_with('_')) && name != "_" {
             self.errors
-                .push(TranspileError::DefUnderscoreTerminus(span.clone()));
+                .push(CheckError::DefUnderscoreTerminus(span.clone()));
         }
-        Ident { name, span }
+        Ident {
+            name,
+            span,
+            id: self.ids.ident(name),
+        }
     }
-    fn bound_ident(&mut self, pair: Pair<'a, Rule>) -> Ident<'a> {
+    fn bound_ident(&mut self, pair: Pair<'i, Rule>) -> Ident<'i> {
         let ident = self.ident(pair);
         if FORBIDDEN_REDIFINITIONS.contains(&ident.name) {
             self.errors
-                .push(TranspileError::ForbiddenRedefinition(ident.clone()));
+                .push(CheckError::ForbiddenRedefinition(ident.clone()));
         }
         ident
     }
-    fn param(&mut self, pair: Pair<'a, Rule>) -> Param<'a> {
+    fn param(&mut self, pair: Pair<'i, Rule>) -> Param<'i> {
         let mut pairs = pair.into_inner();
         let ident = self.bound_ident(pairs.next().unwrap());
         Param { ident }
     }
-    fn def(&mut self, pair: Pair<'a, Rule>) -> Item<'a> {
+    fn def(&mut self, pair: Pair<'i, Rule>) -> Item<'i> {
         let mut pairs = pair.into_inner();
         let ident = self.bound_ident(pairs.next().unwrap());
         let mut params = Vec::new();
@@ -242,7 +271,7 @@ impl<'a> ParseState<'a> {
         if is_function {
             if ident.is_underscore() {
                 self.errors
-                    .push(TranspileError::FunctionNamedUnderscore(ident.span.clone()));
+                    .push(CheckError::FunctionNamedUnderscore(ident.span.clone()));
             }
             self.bind_unfinished(ident.name);
             self.push_function_scope();
@@ -263,14 +292,14 @@ impl<'a> ParseState<'a> {
         self.bind_def(def.clone());
         Item::Def(def)
     }
-    fn expr(&mut self, pair: Pair<'a, Rule>) -> Node<'a> {
+    fn expr(&mut self, pair: Pair<'i, Rule>) -> Node<'i> {
         let pair = only(pair);
         match pair.as_rule() {
             Rule::expr_or => self.expr_or(pair),
             rule => unreachable!("{:?}", rule),
         }
     }
-    fn expr_or(&mut self, pair: Pair<'a, Rule>) -> Node<'a> {
+    fn expr_or(&mut self, pair: Pair<'i, Rule>) -> Node<'i> {
         let mut pairs = pair.into_inner();
         let left = pairs.next().unwrap();
         let mut span = left.as_span();
@@ -287,7 +316,7 @@ impl<'a> ParseState<'a> {
         }
         left
     }
-    fn expr_and(&mut self, pair: Pair<'a, Rule>) -> Node<'a> {
+    fn expr_and(&mut self, pair: Pair<'i, Rule>) -> Node<'i> {
         let mut pairs = pair.into_inner();
         let left = pairs.next().unwrap();
         let mut span = left.as_span();
@@ -304,7 +333,7 @@ impl<'a> ParseState<'a> {
         }
         left
     }
-    fn expr_cmp(&mut self, pair: Pair<'a, Rule>) -> Node<'a> {
+    fn expr_cmp(&mut self, pair: Pair<'i, Rule>) -> Node<'i> {
         let mut pairs = pair.into_inner();
         let left = pairs.next().unwrap();
         let mut span = left.as_span();
@@ -326,7 +355,7 @@ impl<'a> ParseState<'a> {
         }
         left
     }
-    fn expr_as(&mut self, pair: Pair<'a, Rule>) -> Node<'a> {
+    fn expr_as(&mut self, pair: Pair<'i, Rule>) -> Node<'i> {
         let mut pairs = pair.into_inner();
         let left = pairs.next().unwrap();
         let mut span = left.as_span();
@@ -344,7 +373,7 @@ impl<'a> ParseState<'a> {
         }
         left
     }
-    fn expr_mdr(&mut self, pair: Pair<'a, Rule>) -> Node<'a> {
+    fn expr_mdr(&mut self, pair: Pair<'i, Rule>) -> Node<'i> {
         let mut pairs = pair.into_inner();
         let left = pairs.next().unwrap();
         let mut span = left.as_span();
@@ -363,7 +392,7 @@ impl<'a> ParseState<'a> {
         }
         left
     }
-    fn expr_neg(&mut self, pair: Pair<'a, Rule>) -> Node<'a> {
+    fn expr_neg(&mut self, pair: Pair<'i, Rule>) -> Node<'i> {
         let span = pair.as_span();
         let mut pairs = pair.into_inner();
         let first = pairs.next().unwrap();
@@ -383,7 +412,7 @@ impl<'a> ParseState<'a> {
             inner
         }
     }
-    fn expr_method_call(&mut self, pair: Pair<'a, Rule>) -> Node<'a> {
+    fn expr_method_call(&mut self, pair: Pair<'i, Rule>) -> Node<'i> {
         let span = pair.as_span();
         let mut pairs = pair.into_inner();
         let mut node = self.expr_call(pairs.next().unwrap());
@@ -401,7 +430,7 @@ impl<'a> ParseState<'a> {
         }
         node
     }
-    fn expr_call(&mut self, pair: Pair<'a, Rule>) -> Node<'a> {
+    fn expr_call(&mut self, pair: Pair<'i, Rule>) -> Node<'i> {
         let span = pair.as_span();
         let mut pairs = pair.into_inner();
         let caller = self.term(pairs.next().unwrap());
@@ -415,26 +444,24 @@ impl<'a> ParseState<'a> {
             caller
         }
     }
-    fn call_args(&mut self, pair: Pair<'a, Rule>) -> Vec<Node<'a>> {
+    fn call_args(&mut self, pair: Pair<'i, Rule>) -> Vec<Node<'i>> {
         pair.into_inner().map(|pair| self.expr(pair)).collect()
     }
-    fn term(&mut self, pair: Pair<'a, Rule>) -> Node<'a> {
+    fn term(&mut self, pair: Pair<'i, Rule>) -> Node<'i> {
         let span = pair.as_span();
         let pair = only(pair);
         let term = match pair.as_rule() {
             Rule::int => match pair.as_str().parse::<i64>() {
                 Ok(i) => Term::Int(i),
                 Err(_) => {
-                    self.errors
-                        .push(TranspileError::InvalidLiteral(pair.as_span()));
+                    self.errors.push(CheckError::InvalidLiteral(pair.as_span()));
                     Term::Int(0)
                 }
             },
             Rule::real => match pair.as_str().parse::<f64>() {
                 Ok(i) => Term::Real(i),
                 Err(_) => {
-                    self.errors
-                        .push(TranspileError::InvalidLiteral(pair.as_span()));
+                    self.errors.push(CheckError::InvalidLiteral(pair.as_span()));
                     Term::Real(0.0)
                 }
             },
@@ -462,7 +489,7 @@ impl<'a> ParseState<'a> {
             Rule::list_literal => {
                 Term::List(pair.into_inner().map(|pair| self.expr(pair)).collect())
             }
-            Rule::tag_literal => Term::Tag(self.tag_id(only(pair).as_str())),
+            Rule::tag_literal => Term::Tag(self.ids.tag(only(pair).as_str())),
             Rule::closure => {
                 let span = pair.as_span();
                 let mut pairs = pair.into_inner();
@@ -481,7 +508,7 @@ impl<'a> ParseState<'a> {
         };
         Node::Term(term, span)
     }
-    fn lookup_name<'b>(scopes: &'b [FunctionScope<'a>], name: &str) -> Option<&'b Binding<'a>> {
+    fn lookup_name<'b>(scopes: &'b [FunctionScope<'i>], name: &str) -> Option<&'b Binding<'i>> {
         scopes.iter().rev().find_map(|fscope| {
             fscope
                 .scopes
@@ -490,14 +517,14 @@ impl<'a> ParseState<'a> {
                 .find_map(|pscope| pscope.bindings.get(name))
         })
     }
-    fn verify_ident(&mut self, ident: &Ident<'a>) -> Option<&Binding<'a>> {
+    fn verify_ident(&mut self, ident: &Ident<'i>) -> Option<&Binding<'i>> {
         let binding = Self::lookup_name(&self.scopes, ident.name);
         if binding.is_none() {
-            self.errors.push(TranspileError::UnknownDef(ident.clone()));
+            self.errors.push(CheckError::UnknownDef(ident.clone()));
         }
         binding
     }
-    fn function_body(&mut self, pair: Pair<'a, Rule>) -> Items<'a> {
+    fn function_body(&mut self, pair: Pair<'i, Rule>) -> Items<'i> {
         match pair.as_rule() {
             Rule::items => self.items(pair),
             Rule::expr => {
@@ -506,7 +533,7 @@ impl<'a> ParseState<'a> {
             rule => unreachable!("{:?}", rule),
         }
     }
-    fn string_literal(&mut self, pair: Pair<'a, Rule>) -> String {
+    fn string_literal(&mut self, pair: Pair<'i, Rule>) -> String {
         let mut s = String::new();
         for pair in pair.into_inner() {
             match pair.as_rule() {

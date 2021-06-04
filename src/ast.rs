@@ -4,48 +4,49 @@ use std::fmt;
 
 use pest::Span;
 
-pub type FieldId = u64;
+pub type IdentId = u64;
 pub type TagId = u64;
 
 #[derive(Clone)]
-pub struct Ident<'a> {
-    pub name: &'a str,
-    pub span: Span<'a>,
+pub struct Ident<'i> {
+    pub name: &'i str,
+    pub span: Span<'i>,
+    pub id: IdentId,
 }
 
-impl<'a> Ident<'a> {
+impl<'i> Ident<'i> {
     pub fn is_underscore(&self) -> bool {
         self.name == "_"
     }
 }
 
-impl<'a> PartialEq for Ident<'a> {
+impl<'i> PartialEq for Ident<'i> {
     fn eq(&self, other: &Self) -> bool {
         self.name == other.name
     }
 }
 
-impl<'a> fmt::Debug for Ident<'a> {
+impl<'i> fmt::Debug for Ident<'i> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         self.name.fmt(f)
     }
 }
 
-impl<'a> fmt::Display for Ident<'a> {
+impl<'i> fmt::Display for Ident<'i> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         self.name.fmt(f)
     }
 }
 
-impl<'a> Eq for Ident<'a> {}
+impl<'i> Eq for Ident<'i> {}
 #[derive(Debug, Clone)]
-pub enum Item<'a> {
-    Node(Node<'a>),
-    Def(Def<'a>),
+pub enum Item<'i> {
+    Node(Node<'i>),
+    Def(Def<'i>),
 }
 
-impl<'a> Item<'a> {
-    pub fn span(&self) -> &Span<'a> {
+impl<'i> Item<'i> {
+    pub fn span(&self) -> &Span<'i> {
         match self {
             Item::Node(node) => node.span(),
             Item::Def(def) => &def.ident.span,
@@ -53,32 +54,32 @@ impl<'a> Item<'a> {
     }
 }
 
-pub type Items<'a> = Vec<Item<'a>>;
+pub type Items<'i> = Vec<Item<'i>>;
 
 #[derive(Debug, Clone)]
-pub struct Param<'a> {
-    pub ident: Ident<'a>,
+pub struct Param<'i> {
+    pub ident: Ident<'i>,
 }
 
-pub type Params<'a> = Vec<Param<'a>>;
+pub type Params<'i> = Vec<Param<'i>>;
 
 #[derive(Debug, Clone)]
-pub struct Def<'a> {
-    pub ident: Ident<'a>,
-    pub params: Params<'a>,
-    pub items: Items<'a>,
+pub struct Def<'i> {
+    pub ident: Ident<'i>,
+    pub params: Params<'i>,
+    pub items: Items<'i>,
 }
 
 #[derive(Debug, Clone)]
-pub enum Node<'a> {
-    Term(Term<'a>, Span<'a>),
-    BinExpr(BinExpr<'a>),
-    UnExpr(UnExpr<'a>),
-    Call(CallExpr<'a>),
+pub enum Node<'i> {
+    Term(Term<'i>, Span<'i>),
+    BinExpr(BinExpr<'i>),
+    UnExpr(UnExpr<'i>),
+    Call(CallExpr<'i>),
 }
 
-impl<'a> Node<'a> {
-    pub fn span(&self) -> &Span<'a> {
+impl<'i> Node<'i> {
+    pub fn span(&self) -> &Span<'i> {
         match self {
             Node::Term(_, span) => span,
             Node::BinExpr(expr) => &expr.span,
@@ -89,21 +90,21 @@ impl<'a> Node<'a> {
 }
 
 #[derive(Debug, Clone)]
-pub struct BinExpr<'a> {
-    pub left: Box<Node<'a>>,
-    pub right: Box<Node<'a>>,
+pub struct BinExpr<'i> {
+    pub left: Box<Node<'i>>,
+    pub right: Box<Node<'i>>,
     pub op: BinOp,
-    pub span: Span<'a>,
-    pub op_span: Span<'a>,
+    pub span: Span<'i>,
+    pub op_span: Span<'i>,
 }
 
-impl<'a> BinExpr<'a> {
+impl<'i> BinExpr<'i> {
     pub fn new(
-        left: Node<'a>,
-        right: Node<'a>,
+        left: Node<'i>,
+        right: Node<'i>,
         op: BinOp,
-        span: Span<'a>,
-        op_span: Span<'a>,
+        span: Span<'i>,
+        op_span: Span<'i>,
     ) -> Self {
         BinExpr {
             left: left.into(),
@@ -133,14 +134,14 @@ pub enum BinOp {
 }
 
 #[derive(Debug, Clone)]
-pub struct UnExpr<'a> {
-    pub inner: Box<Node<'a>>,
+pub struct UnExpr<'i> {
+    pub inner: Box<Node<'i>>,
     pub op: UnOp,
-    pub span: Span<'a>,
+    pub span: Span<'i>,
 }
 
-impl<'a> UnExpr<'a> {
-    pub fn new(inner: Node<'a>, op: UnOp, span: Span<'a>) -> Self {
+impl<'i> UnExpr<'i> {
+    pub fn new(inner: Node<'i>, op: UnOp, span: Span<'i>) -> Self {
         UnExpr {
             inner: inner.into(),
             op,
@@ -155,36 +156,36 @@ pub enum UnOp {
 }
 
 #[derive(Debug, Clone)]
-pub struct CallExpr<'a> {
-    pub caller: Box<Node<'a>>,
-    pub args: Vec<Node<'a>>,
-    pub span: Span<'a>,
+pub struct CallExpr<'i> {
+    pub caller: Box<Node<'i>>,
+    pub args: Vec<Node<'i>>,
+    pub span: Span<'i>,
 }
 
 #[derive(Debug, Clone)]
-pub struct PushExpr<'a> {
-    pub head: Box<Node<'a>>,
-    pub tail: Box<Node<'a>>,
-    pub span: Span<'a>,
+pub struct PushExpr<'i> {
+    pub head: Box<Node<'i>>,
+    pub tail: Box<Node<'i>>,
+    pub span: Span<'i>,
 }
 
 #[derive(Debug, Clone)]
-pub enum Term<'a> {
+pub enum Term<'i> {
     Nil,
     Bool(bool),
-    Expr(Items<'a>),
+    Expr(Items<'i>),
     Int(i64),
     Real(f64),
-    Ident(Ident<'a>),
+    Ident(Ident<'i>),
     Tag(TagId),
     String(String),
-    List(Vec<Node<'a>>),
-    Closure(Box<Closure<'a>>),
+    List(Vec<Node<'i>>),
+    Closure(Box<Closure<'i>>),
 }
 
 #[derive(Debug, Clone)]
-pub struct Closure<'a> {
-    pub span: Span<'a>,
-    pub params: Params<'a>,
-    pub body: Items<'a>,
+pub struct Closure<'i> {
+    pub span: Span<'i>,
+    pub params: Params<'i>,
+    pub body: Items<'i>,
 }
