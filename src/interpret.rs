@@ -193,6 +193,7 @@ impl<'i> Runtime<'i> {
             Node::Term(term, _) => self.eval_term(term),
             Node::BinExpr(expr) => self.eval_bin_expr(expr),
             Node::UnExpr(expr) => self.eval_un_expr(expr),
+            Node::Access(expr) => self.eval_access_expr(expr),
             _ => todo!(),
         }
     }
@@ -269,6 +270,9 @@ impl<'i> Runtime<'i> {
                 items: closure.body.clone(),
             })),
         })
+    }
+    fn eval_access_expr(&mut self, _expr: AccessExpr<'i>) -> RuntimeResult<'i> {
+        todo!()
     }
     fn eval_bin_expr(&mut self, expr: BinExpr<'i>) -> RuntimeResult<'i> {
         let left = self.eval_node(*expr.left)?;
