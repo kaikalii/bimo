@@ -8,7 +8,7 @@ use pest::{
 use crate::{
     ast::*,
     parse::{parse, CheckError, Ids, Rule},
-    value::{Function, Key, Value},
+    value::{Function, HashState, Key, Value},
 };
 
 pub type BimoFn = fn(&mut Runtime);
@@ -202,7 +202,7 @@ impl<'i> Runtime<'i> {
                     .collect::<Result<_, _>>()?,
             )),
             Term::Entity(entries) => {
-                let mut map = HashMap::with_capacity(entries.len());
+                let mut map = HashMap::with_capacity_and_hasher(entries.len(), HashState);
                 for entry in entries {
                     match entry {
                         Entry::Tag(id) => map.insert(Key::Tag(id), Value::Bool(true)),

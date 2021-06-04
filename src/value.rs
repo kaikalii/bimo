@@ -2,13 +2,25 @@
 
 use std::{
     collections::{HashMap, VecDeque},
+    hash::BuildHasher,
     rc::Rc,
 };
+
+use seahash::SeaHasher;
 
 use crate::{
     ast::{IdentId, Items, Params, TagId},
     interpret::Scope,
 };
+
+pub struct HashState;
+
+impl BuildHasher for HashState {
+    type Hasher = SeaHasher;
+    fn build_hasher(&self) -> Self::Hasher {
+        SeaHasher::new()
+    }
+}
 
 #[derive(Debug, Clone)]
 pub enum Value<'i> {
@@ -19,7 +31,7 @@ pub enum Value<'i> {
     Tag(TagId),
     String(String),
     List(Rc<VecDeque<Value<'i>>>),
-    Entity(Rc<HashMap<Key, Value<'i>>>),
+    Entity(Rc<HashMap<Key, Value<'i>, HashState>>),
     Function(Rc<Function<'i>>),
 }
 
