@@ -65,3 +65,5 @@ impl PartialEq for Value {
 }
 
 impl Eq for Value {}
+
+pub struct Closure {}

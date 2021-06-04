@@ -1,4 +1,4 @@
-use std::{collections::HashMap, error::Error, fmt, rc::Rc};
+use std::{collections::HashMap, error::Error, fmt, mem::swap, rc::Rc};
 
 use pest::{
     error::{Error as PestError, ErrorVariant},
@@ -106,18 +106,30 @@ impl<'i> From<RuntimeError<'i>> for EvalError<'i> {
 
 pub struct Runtime<'i> {
     pub(crate) ids: Ids<'i>,
-    scopes: Vec<Scope>,
+    scope: Scope,
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct Scope {
+    parent: Option<Rc<Self>>,
     pub values: HashMap<IdentId, Value>,
+}
+
+impl Scope {
+    pub fn push(&mut self, mut scope: Scope) {
+        swap(self, &mut scope);
+        self.parent = Some(Rc::new(scope));
+    }
+    pub fn pop(&mut self) {
+        let parent = self.parent.take().unwrap();
+        *self = Rc::try_unwrap(parent).unwrap_or_else(|parent| (*parent).clone());
+    }
 }
 
 impl<'i> Runtime<'i> {
     pub fn new() -> Self {
         Runtime {
-            scopes: vec![],
+            scope: Scope::default(),
             ids: Ids::default(),
         }
     }
@@ -129,20 +141,32 @@ impl<'i> Runtime<'i> {
     }
     pub fn eval<'r>(&'r mut self, input: &'i str) -> Result<Value, EvalError<'i>> {
         let items = parse(self, input)?;
+        Ok(self.eval_items(items)?)
+    }
+    pub fn check<'r>(&'r mut self, input: &'i str) -> Result<(), Vec<CheckError<'i>>> {
+        parse(self, input)?;
+        Ok(())
+    }
+    fn eval_items(&mut self, items: Items<'i>) -> RuntimeResult<'i> {
         let mut res = Value::Nil;
         for item in items {
             res = self.eval_item(item)?;
         }
         Ok(res)
     }
-    pub fn check<'r>(&'r mut self, input: &'i str) -> Result<(), Vec<CheckError<'i>>> {
-        parse(self, input)?;
-        Ok(())
-    }
     fn eval_item(&mut self, item: Item<'i>) -> RuntimeResult<'i> {
         match item {
             Item::Node(node) => self.eval_node(node),
-            Item::Def(_) => todo!(),
+            Item::Def(def) => {
+                if def.params.is_empty() {
+                    let id = self.ids.ident(def.ident.name);
+                    let val = self.eval_items(def.items)?;
+                    self.scope.values.insert(id, val);
+                    Ok(Value::Nil)
+                } else {
+                    todo!()
+                }
+            }
         }
     }
     fn eval_node(&mut self, node: Node<'i>) -> RuntimeResult<'i> {
@@ -166,18 +190,18 @@ impl<'i> Runtime<'i> {
                     .collect::<Result<_, _>>()?,
             )),
             Term::Expr(items) => {
-                self.scopes.push(Scope::default());
+                self.scope.push(Scope::default());
                 let res = items
                     .into_iter()
                     .map(|item| self.eval_item(item))
                     .last()
                     .transpose()?
                     .unwrap_or(Value::Nil);
-                self.scopes.pop().unwrap();
+                self.scope.pop();
                 res
             }
             Term::Tag(id) => Value::Tag(id),
-            Term::Ident(ident) => self.scopes.last().unwrap().values[&ident.id].clone(),
+            Term::Ident(ident) => self.scope.values[&ident.id].clone(),
             Term::Closure(_) => todo!(),
         })
     }
