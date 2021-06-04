@@ -447,6 +447,18 @@ impl<'i, 'r> ParseState<'i, 'r> {
     fn call_args(&mut self, pair: Pair<'i, Rule>) -> Vec<Node<'i>> {
         pair.into_inner().map(|pair| self.expr(pair)).collect()
     }
+    fn ident_term(&mut self, pair: Pair<'i, Rule>) -> Term<'i> {
+        match pair.as_str() {
+            "nil" => Term::Nil,
+            "true" => Term::Bool(true),
+            "false" => Term::Bool(false),
+            _ => {
+                let ident = self.ident(pair);
+                self.verify_ident(&ident);
+                Term::Ident(ident)
+            }
+        }
+    }
     fn term(&mut self, pair: Pair<'i, Rule>) -> Node<'i> {
         let span = pair.as_span();
         let pair = only(pair);
@@ -465,16 +477,7 @@ impl<'i, 'r> ParseState<'i, 'r> {
                     Term::Real(0.0)
                 }
             },
-            Rule::ident => match pair.as_str() {
-                "nil" => Term::Nil,
-                "true" => Term::Bool(true),
-                "false" => Term::Bool(false),
-                _ => {
-                    let ident = self.ident(pair);
-                    self.verify_ident(&ident);
-                    Term::Ident(ident)
-                }
-            },
+            Rule::ident => self.ident_term(pair),
             Rule::paren_expr => {
                 let pair = only(pair);
                 self.push_paren_scope();
@@ -503,6 +506,27 @@ impl<'i, 'r> ParseState<'i, 'r> {
                 let body = self.function_body(pair);
                 self.pop_function_scope();
                 Term::Closure(Closure { span, params, body }.into())
+            }
+            Rule::entity_literal => {
+                let mut entries = Vec::new();
+                for pair in pair.into_inner() {
+                    let mut pairs = pair.into_inner();
+                    let first = pairs.next().unwrap();
+                    entries.push(match first.as_rule() {
+                        Rule::tag_literal => Entry::Tag(self.ids.tag(only(first).as_str())),
+                        Rule::ident => {
+                            let ident = self.ident(first.clone());
+                            let value = if let Some(second) = pairs.next() {
+                                self.expr(second)
+                            } else {
+                                Node::Term(self.ident_term(first), ident.span)
+                            };
+                            Entry::Field(ident.id, value)
+                        }
+                        rule => unreachable!("{:?}", rule),
+                    });
+                }
+                Term::Entity(entries)
             }
             rule => unreachable!("{:?}", rule),
         };

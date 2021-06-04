@@ -26,6 +26,7 @@ pub enum Value<'i> {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Key {
     Field(IdentId),
+    Tag(TagId),
     Int(i64),
     String(String),
 }

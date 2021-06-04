@@ -201,6 +201,16 @@ impl<'i> Runtime<'i> {
                     .map(|node| self.eval_node(node))
                     .collect::<Result<_, _>>()?,
             )),
+            Term::Entity(entries) => {
+                let mut map = HashMap::with_capacity(entries.len());
+                for entry in entries {
+                    match entry {
+                        Entry::Tag(id) => map.insert(Key::Tag(id), Value::Bool(true)),
+                        Entry::Field(id, node) => map.insert(Key::Field(id), self.eval_node(node)?),
+                    };
+                }
+                Value::Entity(Rc::new(map))
+            }
             Term::Expr(items) => {
                 self.scope.push(Scope::default());
                 let res = items
@@ -348,6 +358,10 @@ impl<'i, 'r> fmt::Display for ValueFormatter<'i, 'r> {
                     }
                     match key {
                         Key::Field(id) => self.runtime.ids.ident_name(*id).fmt(f),
+                        Key::Tag(id) => {
+                            write!(f, "#{}", self.runtime.ids.tag_name(*id))?;
+                            continue;
+                        }
                         Key::Int(i) => i.fmt(f),
                         Key::String(s) => s.fmt(f),
                     }?;

@@ -170,6 +170,12 @@ pub struct PushExpr<'i> {
 }
 
 #[derive(Debug, Clone)]
+pub enum Entry<'i> {
+    Field(IdentId, Node<'i>),
+    Tag(TagId),
+}
+
+#[derive(Debug, Clone)]
 pub enum Term<'i> {
     Nil,
     Bool(bool),
@@ -180,6 +186,7 @@ pub enum Term<'i> {
     Tag(TagId),
     String(String),
     List(Vec<Node<'i>>),
+    Entity(Vec<Entry<'i>>),
     Closure(Box<Closure<'i>>),
 }
 
