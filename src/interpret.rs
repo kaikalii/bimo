@@ -8,6 +8,7 @@ use pest::{
 
 use crate::{
     ast::*,
+    num::Num,
     parse::{parse, CheckError, Ids, Rule},
     value::{Function, HashState, Key, Value},
 };
@@ -199,8 +200,8 @@ impl<'i> Runtime<'i> {
         Ok(match term {
             Term::Nil => Value::Nil,
             Term::Bool(b) => Value::Bool(b),
-            Term::Int(i) => Value::Int(i),
-            Term::Real(r) => Value::Real(r),
+            Term::Int(i) => Value::Num(i.into()),
+            Term::Real(r) => Value::Num(r.into()),
             Term::String(s) => Value::String(s),
             Term::List(nodes) => Value::List(Rc::new(
                 nodes
@@ -270,56 +271,28 @@ impl<'i> Runtime<'i> {
         let left = self.eval_node(*expr.left)?;
         let right = *expr.right;
         let right = || self.eval_node(right);
-        let (int, real) = match expr.op {
+        let bin_fn: BinFn = match expr.op {
             BinOp::Or => return if left.is_truthy() { Ok(left) } else { right() },
             BinOp::And => return if left.is_truthy() { right() } else { Ok(left) },
-            BinOp::Add => (
-                (|a, b| Value::Int(a + b)) as IntBinFn,
-                (|a, b| Value::Real(a + b)) as RealBinFn,
-            ),
-            BinOp::Sub => (
-                (|a, b| Value::Int(a - b)) as IntBinFn,
-                (|a, b| Value::Real(a - b)) as RealBinFn,
-            ),
-            BinOp::Mul => (
-                (|a, b| Value::Int(a * b)) as IntBinFn,
-                (|a, b| Value::Real(a * b)) as RealBinFn,
-            ),
-            BinOp::Div => (
-                (|a, b| Value::Int(a / b)) as IntBinFn,
-                (|a, b| Value::Real(a / b)) as RealBinFn,
-            ),
-            BinOp::Rem => (
-                (|a, b| Value::Int(a % b)) as IntBinFn,
-                (|a, b| Value::Real(a % b)) as RealBinFn,
-            ),
-            BinOp::Less => (
-                (|a, b| Value::Bool(a < b)) as IntBinFn,
-                (|a, b| Value::Bool(a < b)) as RealBinFn,
-            ),
-            BinOp::LessOrEqual => (
-                (|a, b| Value::Bool(a <= b)) as IntBinFn,
-                (|a, b| Value::Bool(a <= b)) as RealBinFn,
-            ),
-            BinOp::Greater => (
-                (|a, b| Value::Bool(a > b)) as IntBinFn,
-                (|a, b| Value::Bool(a > b)) as RealBinFn,
-            ),
-            BinOp::GreaterOrEqual => (
-                (|a, b| Value::Bool(a >= b)) as IntBinFn,
-                (|a, b| Value::Bool(a >= b)) as RealBinFn,
-            ),
+            BinOp::Add => |a, b| Value::Num(a + b),
+            BinOp::Sub => |a, b| Value::Num(a - b),
+            BinOp::Mul => |a, b| Value::Num(a * b),
+            BinOp::Div => |a, b| Value::Num(a / b),
+            BinOp::Rem => |a, b| Value::Num(a % b),
+            BinOp::Less => |a, b| Value::Bool(a < b),
+            BinOp::LessOrEqual => |a, b| Value::Bool(a <= b),
+            BinOp::Greater => |a, b| Value::Bool(a > b),
+            BinOp::GreaterOrEqual => |a, b| Value::Bool(a >= b),
             BinOp::Equals => return Ok(Value::Bool(left == right()?)),
             BinOp::NotEquals => return Ok(Value::Bool(left != right()?)),
         };
-        bin_op_impl(expr.op, left, right()?, expr.span, int, real)
+        bin_op_impl(expr.op, left, right()?, expr.span, bin_fn)
     }
     fn eval_un_expr(&mut self, expr: UnExpr<'i>) -> RuntimeResult<'i> {
         let inner = self.eval_node(*expr.inner)?;
         Ok(match expr.op {
             UnOp::Neg => match inner {
-                Value::Int(i) => Value::Int(-i),
-                Value::Real(r) => Value::Real(-r),
+                Value::Num(n) => Value::Num(-n),
                 val => {
                     return Err(RuntimeErrorKind::InvalidUnaryOperation {
                         operand: val.type_name().into(),
@@ -332,22 +305,17 @@ impl<'i> Runtime<'i> {
     }
 }
 
-type IntBinFn<'i> = fn(i64, i64) -> Value<'i>;
-type RealBinFn<'i> = fn(f64, f64) -> Value<'i>;
+type BinFn<'i> = fn(Num, Num) -> Value<'i>;
 
 fn bin_op_impl<'i>(
     op: BinOp,
     left: Value<'i>,
     right: Value<'i>,
     span: Span<'i>,
-    int: IntBinFn<'i>,
-    real: RealBinFn<'i>,
+    f: BinFn<'i>,
 ) -> RuntimeResult<'i> {
     Ok(match (left, right) {
-        (Value::Int(a), Value::Int(b)) => int(a, b),
-        (Value::Int(a), Value::Real(b)) => real(a as f64, b),
-        (Value::Real(a), Value::Int(b)) => real(a, b as f64),
-        (Value::Real(a), Value::Real(b)) => real(a, b),
+        (Value::Num(a), Value::Num(b)) => f(a, b),
         (a, b) => {
             return Err(RuntimeErrorKind::InvalidBinaryOperation {
                 left: a.type_name().into(),
@@ -369,8 +337,7 @@ impl<'i, 'r> fmt::Display for ValueFormatter<'i, 'r> {
         match self.value {
             Value::Nil => "nil".fmt(f),
             Value::Bool(b) => b.fmt(f),
-            Value::Int(i) => i.fmt(f),
-            Value::Real(r) => r.fmt(f),
+            Value::Num(n) => n.fmt(f),
             Value::String(s) => s.fmt(f),
             Value::Tag(id) => {
                 write!(f, "#{}", self.runtime.ids.tag_name(*id))

@@ -11,6 +11,7 @@ use seahash::SeaHasher;
 use crate::{
     ast::{IdentId, Items, Params, TagId},
     interpret::Scope,
+    num::Num,
 };
 
 #[derive(Clone)]
@@ -27,8 +28,7 @@ impl BuildHasher for HashState {
 pub enum Value<'i> {
     Nil,
     Bool(bool),
-    Int(i64),
-    Real(f64),
+    Num(Num),
     Tag(TagId),
     String(String),
     List(Rc<VecDeque<Value<'i>>>),
@@ -52,8 +52,7 @@ impl<'i> Value<'i> {
         match self {
             Value::Nil => "nil",
             Value::Bool(_) => "bool",
-            Value::Int(_) => "int",
-            Value::Real(_) => "real",
+            Value::Num(_) => "number",
             Value::Tag(_) => "tag",
             Value::String(_) => "string",
             Value::List(_) => "list",
@@ -68,10 +67,7 @@ impl<'i> PartialEq for Value<'i> {
         match (self, other) {
             (Value::Nil, Value::Nil) => true,
             (Value::Bool(a), Value::Bool(b)) => a == b,
-            (Value::Int(a), Value::Int(b)) => a == b,
-            (Value::Int(a), Value::Real(b)) => (*a as f64 - b).abs() < f64::EPSILON,
-            (Value::Real(a), Value::Int(b)) => (a - *b as f64).abs() < f64::EPSILON,
-            (Value::Real(a), Value::Real(b)) => (a - b).abs() < f64::EPSILON,
+            (Value::Num(a), Value::Num(b)) => a == b,
             (Value::String(a), Value::String(b)) => a == b,
             (Value::Tag(a), Value::Tag(b)) => a == b,
             (Value::List(a), Value::List(b)) => a == b,
