@@ -1,5 +1,6 @@
 use std::{collections::HashMap, error::Error, fmt, mem::swap, rc::Rc};
 
+use itertools::Itertools;
 use pest::{
     error::{Error as PestError, ErrorVariant},
     Span,
@@ -23,6 +24,9 @@ pub enum RuntimeErrorKind {
     InvalidUnaryOperation {
         operand: String,
         op: UnOp,
+    },
+    InvalidEntityDefault {
+        default: String,
     },
 }
 
@@ -48,6 +52,9 @@ impl fmt::Display for RuntimeErrorKind {
             RuntimeErrorKind::InvalidUnaryOperation { operand, op } => match op {
                 UnOp::Neg => write!(f, "Unable to negate {}", operand),
             },
+            RuntimeErrorKind::InvalidEntityDefault { default } => {
+                write!(f, "Entity cannot be default initialized from {}", default)
+            }
         }
     }
 }
@@ -201,13 +208,41 @@ impl<'i> Runtime<'i> {
                     .map(|node| self.eval_node(node))
                     .collect::<Result<_, _>>()?,
             )),
-            Term::Entity(entries) => {
+            Term::Entity { entries, default } => {
                 let mut map = HashMap::with_capacity_and_hasher(entries.len(), HashState);
                 for entry in entries {
                     match entry {
                         Entry::Tag(id) => map.insert(Key::Tag(id), Value::Bool(true)),
                         Entry::Field(id, node) => map.insert(Key::Field(id), self.eval_node(node)?),
                     };
+                }
+                if let Some(node) = default {
+                    let span = node.span().clone();
+                    let default = self.eval_node(*node)?;
+                    match default {
+                        Value::Nil => {}
+                        Value::Tag(id) => {
+                            map.insert(Key::Tag(id), Value::Bool(true));
+                        }
+                        Value::Entity(default_map) => match Rc::try_unwrap(default_map) {
+                            Ok(default_map) => {
+                                for (k, v) in default_map {
+                                    map.entry(k).or_insert(v);
+                                }
+                            }
+                            Err(default_map) => {
+                                for (k, v) in &*default_map {
+                                    map.entry(k.clone()).or_insert_with(|| v.clone());
+                                }
+                            }
+                        },
+                        val => {
+                            return Err(RuntimeErrorKind::InvalidEntityDefault {
+                                default: val.type_name().into(),
+                            }
+                            .span(span))
+                        }
+                    }
                 }
                 Value::Entity(Rc::new(map))
             }
@@ -352,7 +387,7 @@ impl<'i, 'r> fmt::Display for ValueFormatter<'i, 'r> {
             }
             Value::Entity(entity) => {
                 write!(f, "{{")?;
-                for (i, (key, val)) in entity.iter().enumerate() {
+                for (i, (key, val)) in entity.iter().sorted_by_key(|(key, _)| *key).enumerate() {
                     if i > 0 {
                         write!(f, ", ")?;
                     }

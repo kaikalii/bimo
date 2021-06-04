@@ -13,6 +13,7 @@ use crate::{
     interpret::Scope,
 };
 
+#[derive(Clone)]
 pub struct HashState;
 
 impl BuildHasher for HashState {
@@ -37,8 +38,8 @@ pub enum Value<'i> {
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Key {
-    Field(IdentId),
     Tag(TagId),
+    Field(IdentId),
     Int(i64),
     String(String),
 }

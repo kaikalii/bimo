@@ -186,7 +186,10 @@ pub enum Term<'i> {
     Tag(TagId),
     String(String),
     List(Vec<Node<'i>>),
-    Entity(Vec<Entry<'i>>),
+    Entity {
+        entries: Vec<Entry<'i>>,
+        default: Option<Box<Node<'i>>>,
+    },
     Closure(Box<Closure<'i>>),
 }
 

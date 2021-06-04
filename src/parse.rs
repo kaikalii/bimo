@@ -509,24 +509,33 @@ impl<'i, 'r> ParseState<'i, 'r> {
             }
             Rule::entity_literal => {
                 let mut entries = Vec::new();
+                let mut default = None;
                 for pair in pair.into_inner() {
-                    let mut pairs = pair.into_inner();
-                    let first = pairs.next().unwrap();
-                    entries.push(match first.as_rule() {
-                        Rule::tag_literal => Entry::Tag(self.ids.tag(only(first).as_str())),
-                        Rule::ident => {
-                            let ident = self.ident(first.clone());
-                            let value = if let Some(second) = pairs.next() {
-                                self.expr(second)
-                            } else {
-                                Node::Term(self.ident_term(first), ident.span)
-                            };
-                            Entry::Field(ident.id, value)
+                    match pair.as_rule() {
+                        Rule::entity_item => {
+                            let mut pairs = pair.into_inner();
+                            let first = pairs.next().unwrap();
+                            match first.as_rule() {
+                                Rule::tag_literal => {
+                                    entries.push(Entry::Tag(self.ids.tag(only(first).as_str())))
+                                }
+                                Rule::ident => {
+                                    let ident = self.ident(first.clone());
+                                    let value = if let Some(second) = pairs.next() {
+                                        self.expr(second)
+                                    } else {
+                                        Node::Term(self.ident_term(first), ident.span)
+                                    };
+                                    entries.push(Entry::Field(ident.id, value));
+                                }
+                                rule => unreachable!("{:?}", rule),
+                            }
                         }
+                        Rule::expr => default = Some(Box::new(self.expr(pair))),
                         rule => unreachable!("{:?}", rule),
-                    });
+                    }
                 }
-                Term::Entity(entries)
+                Term::Entity { entries, default }
             }
             rule => unreachable!("{:?}", rule),
         };
