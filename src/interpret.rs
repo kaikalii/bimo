@@ -8,7 +8,7 @@ use pest::{
 use crate::{
     ast::*,
     parse::{parse, CheckError, Ids, Rule},
-    value::{Key, Value},
+    value::{Function, Key, Value},
 };
 
 pub type BimoFn = fn(&mut Runtime);
@@ -68,7 +68,7 @@ impl<'i> fmt::Display for RuntimeError<'i> {
 
 impl<'i> Error for RuntimeError<'i> {}
 
-pub type RuntimeResult<'i> = Result<Value, RuntimeError<'i>>;
+pub type RuntimeResult<'i> = Result<Value<'i>, RuntimeError<'i>>;
 
 #[derive(Debug)]
 pub enum EvalError<'i> {
@@ -106,17 +106,17 @@ impl<'i> From<RuntimeError<'i>> for EvalError<'i> {
 
 pub struct Runtime<'i> {
     pub(crate) ids: Ids<'i>,
-    scope: Scope,
+    scope: Scope<'i>,
 }
 
-#[derive(Clone, Default)]
-pub struct Scope {
+#[derive(Debug, Clone, Default)]
+pub struct Scope<'i> {
     parent: Option<Rc<Self>>,
-    pub values: HashMap<IdentId, Value>,
+    pub values: HashMap<IdentId, Value<'i>>,
 }
 
-impl Scope {
-    pub fn push(&mut self, mut scope: Scope) {
+impl<'i> Scope<'i> {
+    pub fn push(&mut self, mut scope: Scope<'i>) {
         swap(self, &mut scope);
         self.parent = Some(Rc::new(scope));
     }
@@ -133,13 +133,13 @@ impl<'i> Runtime<'i> {
             ids: Ids::default(),
         }
     }
-    pub fn format<'b>(&'b self, value: &'b Value) -> ValueFormatter<'i, 'b> {
+    pub fn format<'r>(&'r self, value: &'r Value<'i>) -> ValueFormatter<'i, 'r> {
         ValueFormatter {
             value,
             runtime: self,
         }
     }
-    pub fn eval<'r>(&'r mut self, input: &'i str) -> Result<Value, EvalError<'i>> {
+    pub fn eval<'r>(&'r mut self, input: &'i str) -> Result<Value<'i>, EvalError<'i>> {
         let items = parse(self, input)?;
         Ok(self.eval_items(items)?)
     }
@@ -158,14 +158,18 @@ impl<'i> Runtime<'i> {
         match item {
             Item::Node(node) => self.eval_node(node),
             Item::Def(def) => {
-                if def.params.is_empty() {
-                    let id = self.ids.ident(def.ident.name);
-                    let val = self.eval_items(def.items)?;
-                    self.scope.values.insert(id, val);
-                    Ok(Value::Nil)
+                let id = self.ids.ident(def.ident.name);
+                let val = if def.params.is_empty() {
+                    self.eval_items(def.items)?
                 } else {
-                    todo!()
-                }
+                    Value::Function(Rc::new(Function {
+                        scope: self.scope.clone(),
+                        params: def.params.clone(),
+                        items: def.items.clone(),
+                    }))
+                };
+                self.scope.values.insert(id, val);
+                Ok(Value::Nil)
             }
         }
     }
@@ -202,7 +206,11 @@ impl<'i> Runtime<'i> {
             }
             Term::Tag(id) => Value::Tag(id),
             Term::Ident(ident) => self.scope.values[&ident.id].clone(),
-            Term::Closure(_) => todo!(),
+            Term::Closure(closure) => Value::Function(Rc::new(Function {
+                scope: self.scope.clone(),
+                params: closure.params.clone(),
+                items: closure.body.clone(),
+            })),
         })
     }
     fn eval_bin_expr(&mut self, expr: BinExpr<'i>) -> RuntimeResult<'i> {
@@ -255,17 +263,17 @@ impl<'i> Runtime<'i> {
     }
 }
 
-type IntBinFn = fn(i64, i64) -> Value;
-type RealBinFn = fn(f64, f64) -> Value;
+type IntBinFn<'i> = fn(i64, i64) -> Value<'i>;
+type RealBinFn<'i> = fn(f64, f64) -> Value<'i>;
 
-fn bin_op_impl(
+fn bin_op_impl<'i>(
     op: BinOp,
-    left: Value,
-    right: Value,
-    span: Span,
-    int: IntBinFn,
-    real: RealBinFn,
-) -> RuntimeResult {
+    left: Value<'i>,
+    right: Value<'i>,
+    span: Span<'i>,
+    int: IntBinFn<'i>,
+    real: RealBinFn<'i>,
+) -> RuntimeResult<'i> {
     Ok(match (left, right) {
         (Value::Int(a), Value::Int(b)) => int(a, b),
         (Value::Int(a), Value::Real(b)) => real(a as f64, b),
@@ -282,12 +290,12 @@ fn bin_op_impl(
     })
 }
 
-pub struct ValueFormatter<'i, 'b> {
-    value: &'b Value,
-    runtime: &'b Runtime<'i>,
+pub struct ValueFormatter<'i, 'r> {
+    value: &'r Value<'i>,
+    runtime: &'r Runtime<'i>,
 }
 
-impl<'i, 'b> fmt::Display for ValueFormatter<'i, 'b> {
+impl<'i, 'r> fmt::Display for ValueFormatter<'i, 'r> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self.value {
             Value::Nil => "nil".fmt(f),
@@ -323,6 +331,7 @@ impl<'i, 'b> fmt::Display for ValueFormatter<'i, 'b> {
                 }
                 write!(f, "}}")
             }
+            Value::Function(function) => write!(f, "function({:p})", Rc::as_ptr(function)),
         }
     }
 }

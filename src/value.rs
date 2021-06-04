@@ -5,18 +5,22 @@ use std::{
     rc::Rc,
 };
 
-use crate::ast::{IdentId, TagId};
+use crate::{
+    ast::{IdentId, Items, Params, TagId},
+    interpret::Scope,
+};
 
 #[derive(Debug, Clone)]
-pub enum Value {
+pub enum Value<'i> {
     Nil,
     Bool(bool),
     Int(i64),
     Real(f64),
     Tag(TagId),
     String(String),
-    List(Rc<VecDeque<Value>>),
-    Entity(Rc<HashMap<Key, Value>>),
+    List(Rc<VecDeque<Value<'i>>>),
+    Entity(Rc<HashMap<Key, Value<'i>>>),
+    Function(Rc<Function<'i>>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -26,7 +30,7 @@ pub enum Key {
     String(String),
 }
 
-impl Value {
+impl<'i> Value<'i> {
     pub fn is_truthy(&self) -> bool {
         !matches!(self, Value::Nil | Value::Bool(false))
     }
@@ -40,12 +44,13 @@ impl Value {
             Value::String(_) => "string",
             Value::List(_) => "list",
             Value::Entity(_) => "entity",
+            Value::Function(_) => "function",
         }
     }
 }
 
-impl PartialEq for Value {
-    fn eq(&self, other: &Value) -> bool {
+impl<'i> PartialEq for Value<'i> {
+    fn eq(&self, other: &Value<'i>) -> bool {
         match (self, other) {
             (Value::Nil, Value::Nil) => true,
             (Value::Bool(a), Value::Bool(b)) => a == b,
@@ -64,6 +69,11 @@ impl PartialEq for Value {
     }
 }
 
-impl Eq for Value {}
+impl<'i> Eq for Value<'i> {}
 
-pub struct Closure {}
+#[derive(Debug, Clone)]
+pub struct Function<'i> {
+    pub scope: Scope<'i>,
+    pub params: Params<'i>,
+    pub items: Items<'i>,
+}
