@@ -215,6 +215,9 @@ impl<'i> Runtime<'i> {
                     match entry {
                         Entry::Tag(id) => map.insert(Key::Tag(id), Value::Bool(true)),
                         Entry::Field(id, node) => map.insert(Key::Field(id), self.eval_node(node)?),
+                        Entry::Index(key, val) => {
+                            map.insert(Key::Value(self.eval_node(key)?), self.eval_node(val)?)
+                        }
                     };
                 }
                 if let Some(node) = default {
@@ -332,6 +335,15 @@ pub struct ValueFormatter<'i, 'r> {
     runtime: &'r Runtime<'i>,
 }
 
+impl<'i, 'r> fmt::Debug for ValueFormatter<'i, 'r> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self.value {
+            Value::String(s) => s.fmt(f),
+            _ => write!(f, "{}", self),
+        }
+    }
+}
+
 impl<'i, 'r> fmt::Display for ValueFormatter<'i, 'r> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self.value {
@@ -359,15 +371,20 @@ impl<'i, 'r> fmt::Display for ValueFormatter<'i, 'r> {
                         write!(f, ", ")?;
                     }
                     match key {
-                        Key::Field(id) => self.runtime.ids.ident_name(*id).fmt(f),
-                        Key::Tag(id) => {
-                            write!(f, "#{}", self.runtime.ids.tag_name(*id))?;
-                            continue;
-                        }
-                        Key::Int(i) => i.fmt(f),
-                        Key::String(s) => s.fmt(f),
-                    }?;
-                    write!(f, ": {}", self.runtime.format(val))?;
+                        Key::Field(id) => write!(
+                            f,
+                            "{}: {:?}",
+                            self.runtime.ids.ident_name(*id),
+                            self.runtime.format(val)
+                        )?,
+                        Key::Tag(id) => write!(f, "#{}", self.runtime.ids.tag_name(*id))?,
+                        Key::Value(key) => write!(
+                            f,
+                            "{:?} => {:?}",
+                            self.runtime.format(key),
+                            self.runtime.format(val)
+                        )?,
+                    }
                 }
                 write!(f, "}}")
             }

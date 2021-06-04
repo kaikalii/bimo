@@ -27,7 +27,7 @@ ident = { !keyword ~ ident_inner | starts_with_keyword | "_" }
 
 // Container literals
 list_literal = { "[" ~ (expr ~ ","?)* ~ "]" }
-entity_item = { tag_literal | ident ~ (":" ~ expr)? }
+entity_item = { tag_literal | expr ~ "=>" ~ expr | ident ~ (":" ~ expr)? }
 entity_literal = { "{" ~ NEWLINE? ~ (entity_item ~ ","? ~ NEWLINE?)* ~ (".." ~ expr)? ~ "}" }
 
 // Operators

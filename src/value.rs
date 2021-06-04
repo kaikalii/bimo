@@ -1,8 +1,9 @@
 #![allow(dead_code)]
 
 use std::{
+    cmp::Ordering,
     collections::{HashMap, VecDeque},
-    hash::BuildHasher,
+    hash::{BuildHasher, Hash, Hasher},
     rc::Rc,
 };
 
@@ -32,16 +33,15 @@ pub enum Value<'i> {
     Tag(TagId),
     String(String),
     List(Rc<VecDeque<Value<'i>>>),
-    Entity(Rc<HashMap<Key, Value<'i>, HashState>>),
+    Entity(Rc<HashMap<Key<'i>, Value<'i>, HashState>>),
     Function(Rc<Function<'i>>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum Key {
+pub enum Key<'i> {
     Tag(TagId),
     Field(IdentId),
-    Int(i64),
-    String(String),
+    Value(Value<'i>),
 }
 
 impl<'i> Value<'i> {
@@ -60,6 +60,18 @@ impl<'i> Value<'i> {
             Value::Function(_) => "function",
         }
     }
+    pub fn discriminant_index(&self) -> u8 {
+        match self {
+            Value::Nil => 0,
+            Value::Bool(_) => 1,
+            Value::Num(_) => 2,
+            Value::Tag(_) => 3,
+            Value::String(_) => 4,
+            Value::List(_) => 5,
+            Value::Entity(_) => 6,
+            Value::Function(_) => 7,
+        }
+    }
 }
 
 impl<'i> PartialEq for Value<'i> {
@@ -71,8 +83,11 @@ impl<'i> PartialEq for Value<'i> {
             (Value::String(a), Value::String(b)) => a == b,
             (Value::Tag(a), Value::Tag(b)) => a == b,
             (Value::List(a), Value::List(b)) => a == b,
+            (Value::Function(a), Value::Function(b)) => Rc::ptr_eq(a, b),
             (Value::Entity(a), Value::Entity(b)) => {
-                Rc::ptr_eq(a, b) || { a.iter().all(|(k, v)| b.get(k).map_or(false, |v2| v == v2)) }
+                Rc::ptr_eq(a, b)
+                    || a.len() == b.len()
+                        && a.iter().all(|(k, v)| b.get(k).map_or(false, |v2| v == v2))
             }
             _ => false,
         }
@@ -80,6 +95,53 @@ impl<'i> PartialEq for Value<'i> {
 }
 
 impl<'i> Eq for Value<'i> {}
+
+impl<'i> PartialOrd for Value<'i> {
+    fn partial_cmp(&self, other: &Value<'i>) -> Option<Ordering> {
+        match (self, other) {
+            (Value::Nil, Value::Nil) => Some(Ordering::Equal),
+            (Value::Bool(a), Value::Bool(b)) => a.partial_cmp(b),
+            (Value::Num(a), Value::Num(b)) => a.partial_cmp(b),
+            (Value::String(a), Value::String(b)) => a.partial_cmp(b),
+            (Value::Tag(a), Value::Tag(b)) => a.partial_cmp(b),
+            (Value::List(a), Value::List(b)) => a.partial_cmp(b),
+            (Value::Function(a), Value::Function(b)) => Rc::as_ptr(a).partial_cmp(&Rc::as_ptr(b)),
+            (Value::Entity(a), Value::Entity(b)) => {
+                if self == other {
+                    Some(Ordering::Equal)
+                } else {
+                    Rc::as_ptr(a).partial_cmp(&Rc::as_ptr(b))
+                }
+            }
+            (a, b) => a.discriminant_index().partial_cmp(&b.discriminant_index()),
+        }
+    }
+}
+
+impl<'i> Ord for Value<'i> {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.partial_cmp(other).unwrap()
+    }
+}
+
+impl<'i> Hash for Value<'i> {
+    fn hash<H>(&self, state: &mut H)
+    where
+        H: Hasher,
+    {
+        self.discriminant_index().hash(state);
+        match self {
+            Value::Nil => {}
+            Value::Bool(b) => b.hash(state),
+            Value::Num(n) => n.hash(state),
+            Value::String(s) => s.hash(state),
+            Value::Tag(id) => id.hash(state),
+            Value::List(list) => (**list).hash(state),
+            Value::Entity(entity) => Rc::as_ptr(entity).hash(state),
+            Value::Function(function) => Rc::as_ptr(function).hash(state),
+        }
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct Function<'i> {

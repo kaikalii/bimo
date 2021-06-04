@@ -173,6 +173,7 @@ pub struct PushExpr<'i> {
 pub enum Entry<'i> {
     Field(IdentId, Node<'i>),
     Tag(TagId),
+    Index(Node<'i>, Node<'i>),
 }
 
 #[derive(Debug, Clone)]

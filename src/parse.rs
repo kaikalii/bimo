@@ -528,6 +528,11 @@ impl<'i, 'r> ParseState<'i, 'r> {
                                     };
                                     entries.push(Entry::Field(ident.id, value));
                                 }
+                                Rule::expr => {
+                                    let key = self.expr(first.clone());
+                                    let value = self.expr(pairs.next().unwrap());
+                                    entries.push(Entry::Index(key, value));
+                                }
                                 rule => unreachable!("{:?}", rule),
                             }
                         }
