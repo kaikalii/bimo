@@ -405,35 +405,17 @@ impl<'i, 'r> ParseState<'i, 'r> {
         } else {
             first
         };
-        let inner = self.expr_method_call(inner);
+        let inner = self.expr_call(inner);
         if let Some(op) = op {
             Node::UnExpr(UnExpr::new(inner, op, span))
         } else {
             inner
         }
     }
-    fn expr_method_call(&mut self, pair: Pair<'i, Rule>) -> Node<'i> {
-        let span = pair.as_span();
-        let mut pairs = pair.into_inner();
-        let mut node = self.expr_call(pairs.next().unwrap());
-        while let Some(pair) = pairs.next() {
-            let ident = self.ident(pair);
-            self.verify_ident(&ident);
-            let mut args = self.call_args(pairs.next().unwrap());
-            args.insert(0, node);
-            let ident_span = ident.span.clone();
-            node = Node::Call(CallExpr {
-                caller: Node::Term(Term::Ident(ident), ident_span).into(),
-                args,
-                span: span.clone(),
-            });
-        }
-        node
-    }
     fn expr_call(&mut self, pair: Pair<'i, Rule>) -> Node<'i> {
         let span = pair.as_span();
         let mut pairs = pair.into_inner();
-        let caller = self.term(pairs.next().unwrap());
+        let caller = self.expr_access(pairs.next().unwrap());
         if let Some(pair) = pairs.next() {
             Node::Call(CallExpr {
                 caller: caller.into(),
@@ -447,17 +429,29 @@ impl<'i, 'r> ParseState<'i, 'r> {
     fn call_args(&mut self, pair: Pair<'i, Rule>) -> Vec<Node<'i>> {
         pair.into_inner().map(|pair| self.expr(pair)).collect()
     }
-    fn ident_term(&mut self, pair: Pair<'i, Rule>) -> Term<'i> {
-        match pair.as_str() {
-            "nil" => Term::Nil,
-            "true" => Term::Bool(true),
-            "false" => Term::Bool(false),
-            _ => {
-                let ident = self.ident(pair);
-                self.verify_ident(&ident);
-                Term::Ident(ident)
-            }
+    fn expr_access(&mut self, pair: Pair<'i, Rule>) -> Node<'i> {
+        let span = pair.as_span();
+        let mut pairs = pair.into_inner();
+        let root = self.term(pairs.next().unwrap());
+        let mut accessors = Vec::new();
+        for pair in pairs {
+            let span = pair.as_span();
+            let mut pairs = pair.into_inner();
+            let op = pairs.next().unwrap().as_str();
+            let name = pairs.next().unwrap().as_str();
+            let accessor = match op {
+                "." => Accessor::Field(self.ids.ident(name)),
+                ":" => Accessor::Method(self.ids.ident(name)),
+                "#" => Accessor::Tag(self.ids.tag(name)),
+                s => unreachable!("{:?}", s),
+            };
+            accessors.push((accessor, span));
         }
+        Node::Access(AccessExpr {
+            root: root.into(),
+            accessors,
+            span,
+        })
     }
     fn term(&mut self, pair: Pair<'i, Rule>) -> Node<'i> {
         let span = pair.as_span();
@@ -545,6 +539,18 @@ impl<'i, 'r> ParseState<'i, 'r> {
             rule => unreachable!("{:?}", rule),
         };
         Node::Term(term, span)
+    }
+    fn ident_term(&mut self, pair: Pair<'i, Rule>) -> Term<'i> {
+        match pair.as_str() {
+            "nil" => Term::Nil,
+            "true" => Term::Bool(true),
+            "false" => Term::Bool(false),
+            _ => {
+                let ident = self.ident(pair);
+                self.verify_ident(&ident);
+                Term::Ident(ident)
+            }
+        }
     }
     fn lookup_name<'b>(scopes: &'b [FunctionScope<'i>], name: &str) -> Option<&'b Binding<'i>> {
         scopes.iter().rev().find_map(|fscope| {

@@ -76,6 +76,7 @@ pub enum Node<'i> {
     BinExpr(BinExpr<'i>),
     UnExpr(UnExpr<'i>),
     Call(CallExpr<'i>),
+    Access(AccessExpr<'i>),
 }
 
 impl<'i> Node<'i> {
@@ -85,6 +86,7 @@ impl<'i> Node<'i> {
             Node::BinExpr(expr) => &expr.span,
             Node::UnExpr(expr) => &expr.span,
             Node::Call(expr) => &expr.span,
+            Node::Access(expr) => &expr.span,
         }
     }
 }
@@ -163,9 +165,16 @@ pub struct CallExpr<'i> {
 }
 
 #[derive(Debug, Clone)]
-pub struct PushExpr<'i> {
-    pub head: Box<Node<'i>>,
-    pub tail: Box<Node<'i>>,
+pub enum Accessor {
+    Field(IdentId),
+    Method(IdentId),
+    Tag(TagId),
+}
+
+#[derive(Debug, Clone)]
+pub struct AccessExpr<'i> {
+    pub root: Box<Node<'i>>,
+    pub accessors: Vec<(Accessor, Span<'i>)>,
     pub span: Span<'i>,
 }
 
