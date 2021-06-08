@@ -189,7 +189,6 @@ impl<'i> Runtime<'i> {
     }
     pub fn eval<'r>(&'r mut self, input: &'i str) -> Result<Value<'i>, EvalError<'i>> {
         let items = parse(self, input)?;
-        println!("{:#?}", items);
         Ok(self.eval_items(&items)?)
     }
     pub fn check<'r>(&'r mut self, input: &'i str) -> Result<(), Vec<CheckError<'i>>> {
@@ -301,11 +300,7 @@ impl<'i> Runtime<'i> {
                 res
             }
             Term::Tag(ident) => Value::Tag(ident.clone()),
-            Term::Ident(ident) => {
-                let val = self.val(ident.name);
-                println!("{:?} evals to {}", ident.span, self.format(&val));
-                val
-            }
+            Term::Ident(ident) => self.val(ident.name),
             Term::Closure(closure) => Value::Function(Rc::new(Function::Bimo(BimoFunction {
                 scope: self.scope.clone(),
                 params: closure.params.clone(),
@@ -363,7 +358,6 @@ impl<'i> Runtime<'i> {
                         } else {
                             Value::Nil
                         };
-                        println!("bind {} to {}", param.ident.name, self.format(&val));
                         call_scope.values.borrow_mut().insert(param.ident.name, val);
                     }
                     swap(&mut self.scope, &mut call_scope);
