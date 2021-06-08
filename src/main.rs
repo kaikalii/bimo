@@ -3,6 +3,8 @@ mod builtin;
 mod interpret;
 mod num;
 mod parse;
+#[cfg(test)]
+mod test;
 mod value;
 
 use std::path::PathBuf;
