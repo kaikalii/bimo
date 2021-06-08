@@ -2,7 +2,6 @@
 
 use std::{collections::HashMap, fmt};
 
-use bimap::BiMap;
 use itertools::Itertools;
 use pest::{
     error::{Error as PestError, ErrorVariant},
@@ -76,8 +75,8 @@ static FORBIDDEN_REDIFINITIONS: &[&str] = &["nil", "true", "false"];
 #[grammar = "grammar.pest"]
 struct KinParser;
 
-pub(crate) fn parse<'i, 'r>(
-    runtime: &'r mut Runtime<'i>,
+pub(crate) fn parse<'i>(
+    _runtime: &mut Runtime<'i>,
     input: &'i str,
 ) -> Result<Items<'i>, Vec<CheckError<'i>>> {
     match KinParser::parse(Rule::file, input) {
@@ -86,7 +85,6 @@ pub(crate) fn parse<'i, 'r>(
                 input,
                 scopes: vec![FunctionScope::default()],
                 errors: Vec::new(),
-                ids: &mut runtime.ids,
             };
             for (name, _) in crate::builtin::FUNCTIONS {
                 state.scope().bindings.insert(name, Binding::Builtin);
@@ -107,7 +105,7 @@ enum Binding<'i> {
     Def(Def<'i>),
     Param(u8),
     Builtin,
-    Unfinished(u8),
+    Unfinished,
 }
 
 #[derive(Default)]
@@ -127,45 +125,13 @@ impl<'i> Default for FunctionScope<'i> {
     }
 }
 
-#[derive(Clone, Default)]
-pub struct Ids<'i> {
-    tags: BiMap<&'i str, TagId>,
-    idents: BiMap<&'i str, IdentId>,
-    next_tag: TagId,
-    next_ident: IdentId,
-}
-
-impl<'i> Ids<'i> {
-    pub fn ident(&mut self, name: &'i str) -> IdentId {
-        if !self.idents.contains_left(name) {
-            self.idents.insert(name, self.next_ident);
-            self.next_ident += 1;
-        }
-        *self.idents.get_by_left(name).unwrap()
-    }
-    pub fn tag(&mut self, name: &'i str) -> TagId {
-        if !self.tags.contains_left(name) {
-            self.tags.insert(name, self.next_tag);
-            self.next_tag += 1;
-        }
-        *self.tags.get_by_left(name).unwrap()
-    }
-    pub fn ident_name(&self, id: IdentId) -> &'i str {
-        self.idents.get_by_right(&id).unwrap()
-    }
-    pub fn tag_name(&self, id: TagId) -> &'i str {
-        self.tags.get_by_right(&id).unwrap()
-    }
-}
-
-pub struct ParseState<'i, 'r> {
+pub struct ParseState<'i> {
     input: &'i str,
     scopes: Vec<FunctionScope<'i>>,
     errors: Vec<CheckError<'i>>,
-    ids: &'r mut Ids<'i>,
 }
 
-impl<'i, 'r> ParseState<'i, 'r> {
+impl<'i> ParseState<'i> {
     fn push_function_scope(&mut self) {
         self.scopes.push(FunctionScope::default());
     }
@@ -200,10 +166,7 @@ impl<'i, 'r> ParseState<'i, 'r> {
         self.scope().bindings.insert(name, Binding::Param(depth));
     }
     fn bind_unfinished(&mut self, name: &'i str) {
-        let depth = self.depth();
-        self.scope()
-            .bindings
-            .insert(name, Binding::Unfinished(depth));
+        self.scope().bindings.insert(name, Binding::Unfinished);
     }
     fn items(&mut self, pair: Pair<'i, Rule>) -> Items<'i> {
         let mut items = Vec::new();
@@ -237,11 +200,7 @@ impl<'i, 'r> ParseState<'i, 'r> {
             self.errors
                 .push(CheckError::DefUnderscoreTerminus(span.clone()));
         }
-        Ident {
-            name,
-            span,
-            id: self.ids.ident(name),
-        }
+        Ident { name, span }
     }
     fn bound_ident(&mut self, pair: Pair<'i, Rule>) -> Ident<'i> {
         let ident = self.ident(pair);
@@ -405,21 +364,48 @@ impl<'i, 'r> ParseState<'i, 'r> {
         } else {
             first
         };
-        let inner = self.expr_call(inner);
+        let inner = self.expr_access(inner);
         if let Some(op) = op {
             Node::UnExpr(UnExpr::new(inner, op, span))
         } else {
             inner
         }
     }
+    fn expr_access(&mut self, pair: Pair<'i, Rule>) -> Node<'i> {
+        let mut pairs = pair.into_inner();
+        let mut root = self.expr_call(pairs.next().unwrap());
+        for pair in pairs {
+            let pair = only(pair);
+            match pair.as_rule() {
+                Rule::method_call => {
+                    let span = pair.as_span();
+                    let mut pairs = pair.into_inner();
+                    let ident = self.ident(pairs.next().unwrap());
+                    self.verify_ident(&ident);
+                    let mut args = self.call_args(pairs.next().unwrap());
+                    args.insert(0, root);
+                    let ident_span = ident.span.clone();
+                    root = Node::Call(CallExpr {
+                        caller: Node::Term(Term::Ident(ident), ident_span).into(),
+                        args,
+                        span,
+                    });
+                }
+                Rule::field_access => todo!(),
+                rule => unreachable!("{:?}", rule),
+            }
+        }
+        root
+    }
     fn expr_call(&mut self, pair: Pair<'i, Rule>) -> Node<'i> {
         let span = pair.as_span();
         let mut pairs = pair.into_inner();
-        let caller = self.expr_access(pairs.next().unwrap());
+        let caller = self.term(pairs.next().unwrap());
         if let Some(pair) = pairs.next() {
+            let args = self.call_args(pair);
             Node::Call(CallExpr {
                 caller: caller.into(),
-                args: self.call_args(pair),
+                args,
                 span,
             })
         } else {
@@ -428,30 +414,6 @@ impl<'i, 'r> ParseState<'i, 'r> {
     }
     fn call_args(&mut self, pair: Pair<'i, Rule>) -> Vec<Node<'i>> {
         pair.into_inner().map(|pair| self.expr(pair)).collect()
-    }
-    fn expr_access(&mut self, pair: Pair<'i, Rule>) -> Node<'i> {
-        let span = pair.as_span();
-        let mut pairs = pair.into_inner();
-        let root = self.term(pairs.next().unwrap());
-        let mut accessors = Vec::new();
-        for pair in pairs {
-            let span = pair.as_span();
-            let mut pairs = pair.into_inner();
-            let op = pairs.next().unwrap().as_str();
-            let name = pairs.next().unwrap().as_str();
-            let accessor = match op {
-                "." => Accessor::Field(self.ids.ident(name)),
-                ":" => Accessor::Method(self.ids.ident(name)),
-                "#" => Accessor::Tag(self.ids.tag(name)),
-                s => unreachable!("{:?}", s),
-            };
-            accessors.push((accessor, span));
-        }
-        Node::Access(AccessExpr {
-            root: root.into(),
-            accessors,
-            span,
-        })
     }
     fn term(&mut self, pair: Pair<'i, Rule>) -> Node<'i> {
         let span = pair.as_span();
@@ -486,7 +448,7 @@ impl<'i, 'r> ParseState<'i, 'r> {
             Rule::list_literal => {
                 Term::List(pair.into_inner().map(|pair| self.expr(pair)).collect())
             }
-            Rule::tag_literal => Term::Tag(self.ids.tag(only(pair).as_str())),
+            Rule::tag_literal => Term::Tag(self.ident(only(pair))),
             Rule::closure => {
                 let span = pair.as_span();
                 let mut pairs = pair.into_inner();
@@ -511,16 +473,16 @@ impl<'i, 'r> ParseState<'i, 'r> {
                             let first = pairs.next().unwrap();
                             match first.as_rule() {
                                 Rule::tag_literal => {
-                                    entries.push(Entry::Tag(self.ids.tag(only(first).as_str())))
+                                    entries.push(Entry::Tag(self.ident(only(first))))
                                 }
                                 Rule::ident => {
                                     let ident = self.ident(first.clone());
                                     let value = if let Some(second) = pairs.next() {
                                         self.expr(second)
                                     } else {
-                                        Node::Term(self.ident_term(first), ident.span)
+                                        Node::Term(self.ident_term(first), ident.span.clone())
                                     };
-                                    entries.push(Entry::Field(ident.id, value));
+                                    entries.push(Entry::Field(ident, value));
                                 }
                                 Rule::expr => {
                                     let key = self.expr(first.clone());
@@ -561,6 +523,7 @@ impl<'i, 'r> ParseState<'i, 'r> {
                 .find_map(|pscope| pscope.bindings.get(name))
         })
     }
+    /// Verify that a binding with the given ident exists
     fn verify_ident(&mut self, ident: &Ident<'i>) -> Option<&Binding<'i>> {
         let binding = Self::lookup_name(&self.scopes, ident.name);
         if binding.is_none() {

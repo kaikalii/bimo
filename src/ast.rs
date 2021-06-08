@@ -1,17 +1,18 @@
 #![allow(clippy::upper_case_acronyms)]
 
-use std::{fmt, rc::Rc};
+use std::{
+    cmp::Ordering,
+    fmt,
+    hash::{Hash, Hasher},
+    rc::Rc,
+};
 
 use pest::Span;
-
-pub type IdentId = u64;
-pub type TagId = u64;
 
 #[derive(Clone)]
 pub struct Ident<'i> {
     pub name: &'i str,
     pub span: Span<'i>,
-    pub id: IdentId,
 }
 
 impl<'i> Ident<'i> {
@@ -23,6 +24,27 @@ impl<'i> Ident<'i> {
 impl<'i> PartialEq for Ident<'i> {
     fn eq(&self, other: &Self) -> bool {
         self.name == other.name
+    }
+}
+
+impl<'i> PartialOrd for Ident<'i> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        self.name.partial_cmp(other.name)
+    }
+}
+
+impl<'i> Ord for Ident<'i> {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.name.cmp(other.name)
+    }
+}
+
+impl<'i> Hash for Ident<'i> {
+    fn hash<H>(&self, state: &mut H)
+    where
+        H: Hasher,
+    {
+        self.name.hash(state);
     }
 }
 
@@ -165,23 +187,21 @@ pub struct CallExpr<'i> {
 }
 
 #[derive(Debug, Clone)]
-pub enum Accessor {
-    Field(IdentId),
-    Method(IdentId),
-    Tag(TagId),
+pub enum Accessor<'i> {
+    Field(&'i str),
 }
 
 #[derive(Debug, Clone)]
 pub struct AccessExpr<'i> {
     pub root: Box<Node<'i>>,
-    pub accessors: Vec<(Accessor, Span<'i>)>,
+    pub accessor: Accessor<'i>,
     pub span: Span<'i>,
 }
 
 #[derive(Debug, Clone)]
 pub enum Entry<'i> {
-    Field(IdentId, Node<'i>),
-    Tag(TagId),
+    Field(Ident<'i>, Node<'i>),
+    Tag(Ident<'i>),
     Index(Node<'i>, Node<'i>),
 }
 
@@ -193,7 +213,7 @@ pub enum Term<'i> {
     Int(i64),
     Real(f64),
     Ident(Ident<'i>),
-    Tag(TagId),
+    Tag(Ident<'i>),
     String(Rc<str>),
     List(Vec<Node<'i>>),
     Entity {

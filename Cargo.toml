@@ -5,7 +5,6 @@ name = 'bimo'
 version = '0.1.0'
 
 [dependencies]
-bimap = '0.6'
 clap.features = ['derive']
 clap.version = '3.0.0-beta.2'
 color-backtrace = '0.5'

@@ -10,7 +10,7 @@ use std::{
 use seahash::SeaHasher;
 
 use crate::{
-    ast::{IdentId, Items, Params, TagId},
+    ast::{Ident, Items, Params},
     interpret::Scope,
     num::Num,
 };
@@ -30,7 +30,7 @@ pub enum Value<'i> {
     Nil,
     Bool(bool),
     Num(Num),
-    Tag(TagId),
+    Tag(Ident<'i>),
     String(Rc<str>),
     List(Rc<VecDeque<Value<'i>>>),
     Entity(Rc<HashMap<Key<'i>, Value<'i>, HashState>>),
@@ -39,8 +39,8 @@ pub enum Value<'i> {
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Key<'i> {
-    Tag(TagId),
-    Field(IdentId),
+    Tag(Ident<'i>),
+    Field(Ident<'i>),
     Value(Value<'i>),
 }
 

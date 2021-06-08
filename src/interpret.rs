@@ -9,7 +9,7 @@ use pest::{
 use crate::{
     ast::*,
     num::Num,
-    parse::{parse, CheckError, Ids, Rule},
+    parse::{parse, CheckError, Rule},
     value::{Function, HashState, Key, Value},
 };
 
@@ -124,14 +124,13 @@ impl<'i> From<RuntimeError<'i>> for EvalError<'i> {
 }
 
 pub struct Runtime<'i> {
-    pub(crate) ids: Ids<'i>,
     scope: Scope<'i>,
 }
 
 #[derive(Debug, Clone, Default)]
 pub struct Scope<'i> {
     parent: Option<Rc<Self>>,
-    pub values: HashMap<IdentId, Value<'i>>,
+    pub values: HashMap<&'i str, Value<'i>>,
 }
 
 impl<'i> Scope<'i> {
@@ -149,7 +148,6 @@ impl<'i> Runtime<'i> {
     pub fn new() -> Self {
         Runtime {
             scope: Scope::default(),
-            ids: Ids::default(),
         }
     }
     pub fn format<'r>(&'r self, value: &'r Value<'i>) -> ValueFormatter<'i, 'r> {
@@ -177,7 +175,6 @@ impl<'i> Runtime<'i> {
         match item {
             Item::Node(node) => self.eval_node(node),
             Item::Def(def) => {
-                let id = self.ids.ident(def.ident.name);
                 let val = if def.params.is_empty() {
                     self.eval_items(&def.items)?
                 } else {
@@ -187,7 +184,7 @@ impl<'i> Runtime<'i> {
                         items: def.items.clone(),
                     }))
                 };
-                self.scope.values.insert(id, val);
+                self.scope.values.insert(def.ident.name, val);
                 Ok(Value::Nil)
             }
         }
@@ -218,9 +215,9 @@ impl<'i> Runtime<'i> {
                 let mut map = HashMap::with_capacity_and_hasher(entries.len(), HashState);
                 for entry in entries {
                     match entry {
-                        Entry::Tag(id) => map.insert(Key::Tag(*id), Value::Bool(true)),
-                        Entry::Field(id, node) => {
-                            map.insert(Key::Field(*id), self.eval_node(node)?)
+                        Entry::Tag(ident) => map.insert(Key::Tag(ident.clone()), Value::Bool(true)),
+                        Entry::Field(ident, node) => {
+                            map.insert(Key::Field(ident.clone()), self.eval_node(node)?)
                         }
                         Entry::Index(key, val) => {
                             map.insert(Key::Value(self.eval_node(key)?), self.eval_node(val)?)
@@ -268,8 +265,8 @@ impl<'i> Runtime<'i> {
                 self.scope.pop();
                 res
             }
-            Term::Tag(id) => Value::Tag(*id),
-            Term::Ident(ident) => self.scope.values[&ident.id].clone(),
+            Term::Tag(ident) => Value::Tag(ident.clone()),
+            Term::Ident(ident) => self.scope.values[ident.name].clone(),
             Term::Closure(closure) => Value::Function(Rc::new(Function {
                 scope: self.scope.clone(),
                 params: closure.params.clone(),
@@ -326,7 +323,7 @@ impl<'i> Runtime<'i> {
                     } else {
                         Value::Nil
                     };
-                    call_scope.values.insert(param.ident.id, val);
+                    call_scope.values.insert(param.ident.name, val);
                 }
                 swap(&mut self.scope, &mut call_scope);
                 let val = self.eval_items(&function.items)?;
@@ -386,8 +383,8 @@ impl<'i, 'r> fmt::Display for ValueFormatter<'i, 'r> {
             Value::Bool(b) => b.fmt(f),
             Value::Num(n) => n.fmt(f),
             Value::String(s) => s.fmt(f),
-            Value::Tag(id) => {
-                write!(f, "#{}", self.runtime.ids.tag_name(*id))
+            Value::Tag(ident) => {
+                write!(f, "#{}", ident.name)
             }
             Value::List(list) => {
                 write!(f, "[")?;
@@ -406,13 +403,10 @@ impl<'i, 'r> fmt::Display for ValueFormatter<'i, 'r> {
                         write!(f, ", ")?;
                     }
                     match key {
-                        Key::Field(id) => write!(
-                            f,
-                            "{}: {:?}",
-                            self.runtime.ids.ident_name(*id),
-                            self.runtime.format(val)
-                        )?,
-                        Key::Tag(id) => write!(f, "#{}", self.runtime.ids.tag_name(*id))?,
+                        Key::Field(ident) => {
+                            write!(f, "{}: {:?}", ident.name, self.runtime.format(val))?
+                        }
+                        Key::Tag(ident) => write!(f, "#{}", ident.name)?,
                         Key::Value(key) => write!(
                             f,
                             "{:?} => {:?}",
