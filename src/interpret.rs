@@ -352,6 +352,7 @@ impl<'i> Runtime<'i> {
             Value::Function(function) => match &*function {
                 Function::Bimo(function) => {
                     let mut call_scope = function.scope.clone();
+                    call_scope.push(Scope::default());
                     for (i, param) in function.params.iter().enumerate() {
                         let val = if let Some(node) = expr.args.get(i) {
                             self.eval_node(node)?
