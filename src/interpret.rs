@@ -1,4 +1,7 @@
-use std::{collections::HashMap, error::Error, fmt, mem::swap, sync::Arc};
+use std::{
+    cell::RefCell, collections::HashMap, error::Error, fmt, intrinsics::transmute, mem::swap,
+    rc::Rc,
+};
 
 use itertools::Itertools;
 use pest::{
@@ -14,7 +17,7 @@ use crate::{
     value::{BimoFunction, Function, HashState, Key, Value},
 };
 
-pub type BimoFn<'i> = fn(&mut Runtime) -> RuntimeResult<'i>;
+pub type BimoFn<'i> = fn(&mut Runtime<'i>) -> RuntimeResult<'i>;
 
 #[derive(Debug)]
 pub enum RuntimeErrorKind {
@@ -130,21 +133,22 @@ pub struct Runtime<'i> {
 
 #[derive(Debug, Clone, Default)]
 pub struct Scope<'i> {
-    parent: Option<Arc<Self>>,
-    pub values: HashMap<&'i str, Value<'i>>,
+    parent: Option<Rc<Self>>,
+    pub values: Rc<RefCell<HashMap<&'i str, Value<'i>>>>,
 }
 
 impl<'i> Scope<'i> {
     pub fn push(&mut self, mut scope: Scope<'i>) {
         swap(self, &mut scope);
-        self.parent = Some(Arc::new(scope));
+        self.parent = Some(Rc::new(scope));
     }
     pub fn pop(&mut self) {
         let parent = self.parent.take().unwrap();
-        *self = Arc::try_unwrap(parent).unwrap_or_else(|parent| (*parent).clone());
+        *self = Rc::try_unwrap(parent).unwrap_or_else(|parent| (*parent).clone());
     }
     pub fn val(&self, name: &str) -> Option<Value<'i>> {
         self.values
+            .borrow()
             .get(name)
             .cloned()
             .or_else(|| self.parent.as_ref().and_then(|parent| parent.val(name)))
@@ -156,10 +160,19 @@ impl<'i> Runtime<'i> {
         Runtime {
             scope: Scope {
                 parent: None,
-                values: FUNCTIONS
-                    .iter()
-                    .map(|(name, rf)| (*name, Value::Function(Function::Rust(*rf).into())))
-                    .collect(),
+                values: Rc::new(RefCell::new(
+                    FUNCTIONS
+                        .iter()
+                        .cloned()
+                        .map(|(name, rf)| {
+                            (name, unsafe {
+                                transmute::<_, Value<'i>>(Value::Function(
+                                    Function::Rust(rf).into(),
+                                ))
+                            })
+                        })
+                        .collect(),
+                )),
             },
         }
     }
@@ -193,16 +206,21 @@ impl<'i> Runtime<'i> {
         match item {
             Item::Node(node) => self.eval_node(node),
             Item::Def(def) => {
+                dbg!(def.ident.name);
                 let val = if def.params.is_empty() {
                     self.eval_items(&def.items)?
                 } else {
-                    Value::Function(Arc::new(Function::Bimo(BimoFunction {
-                        scope: self.scope.clone(),
-                        params: def.params.clone(),
-                        items: def.items.clone(),
-                    })))
+                    Value::Function(
+                        Function::Bimo(BimoFunction {
+                            scope: self.scope.clone(),
+                            params: def.params.clone(),
+                            items: def.items.clone().into(),
+                        })
+                        .into(),
+                    )
                 };
-                self.scope.values.insert(def.ident.name, val);
+                self.scope.values.borrow_mut().insert(def.ident.name, val);
+                let val = self.val(def.ident.name);
                 Ok(Value::Nil)
             }
         }
@@ -223,7 +241,7 @@ impl<'i> Runtime<'i> {
             Term::Int(i) => Value::Num((*i).into()),
             Term::Real(r) => Value::Num((*r).into()),
             Term::String(s) => Value::String(s.clone()),
-            Term::List(nodes) => Value::List(Arc::new(
+            Term::List(nodes) => Value::List(Rc::new(
                 nodes
                     .iter()
                     .map(|node| self.eval_node(node))
@@ -250,7 +268,7 @@ impl<'i> Runtime<'i> {
                         Value::Tag(id) => {
                             map.insert(Key::Tag(id), Value::Bool(true));
                         }
-                        Value::Entity(default_map) => match Arc::try_unwrap(default_map) {
+                        Value::Entity(default_map) => match Rc::try_unwrap(default_map) {
                             Ok(default_map) => {
                                 for (k, v) in default_map {
                                     map.entry(k).or_insert(v);
@@ -270,7 +288,7 @@ impl<'i> Runtime<'i> {
                         }
                     }
                 }
-                Value::Entity(Arc::new(map))
+                Value::Entity(Rc::new(map))
             }
             Term::Expr(items) => {
                 self.scope.push(Scope::default());
@@ -284,11 +302,11 @@ impl<'i> Runtime<'i> {
                 res
             }
             Term::Tag(ident) => Value::Tag(ident.clone()),
-            Term::Ident(ident) => self.scope.values[ident.name].clone(),
-            Term::Closure(closure) => Value::Function(Arc::new(Function::Bimo(BimoFunction {
+            Term::Ident(ident) => self.val(ident.name),
+            Term::Closure(closure) => Value::Function(Rc::new(Function::Bimo(BimoFunction {
                 scope: self.scope.clone(),
                 params: closure.params.clone(),
-                items: closure.body.clone(),
+                items: closure.body.clone().into(),
             }))),
         })
     }
@@ -342,22 +360,22 @@ impl<'i> Runtime<'i> {
                         } else {
                             Value::Nil
                         };
-                        call_scope.values.insert(param.ident.name, val);
+                        call_scope.values.borrow_mut().insert(param.ident.name, val);
                     }
                     swap(&mut self.scope, &mut call_scope);
-                    let val = self.eval_items(&function.items)?;
+                    let val = self.eval_items(&*function.items.borrow())?;
                     swap(&mut self.scope, &mut call_scope);
                     val
                 }
                 Function::Rust(function) => {
-                    let mut call_scope = Scope::default();
+                    let call_scope = Scope::default();
                     for (i, param) in function.params.iter().enumerate() {
                         let val = if let Some(node) = expr.args.get(i) {
                             self.eval_node(node)?
                         } else {
                             Value::Nil
                         };
-                        call_scope.values.insert(param, val);
+                        call_scope.values.borrow_mut().insert(param, val);
                     }
                     self.scope.push(call_scope);
                     let res = (function.f)(self);
@@ -452,7 +470,7 @@ impl<'i, 'r> fmt::Display for ValueFormatter<'i, 'r> {
                 }
                 write!(f, "}}")
             }
-            Value::Function(function) => write!(f, "function({:p})", Arc::as_ptr(function)),
+            Value::Function(function) => write!(f, "function({:p})", Rc::as_ptr(function)),
         }
     }
 }

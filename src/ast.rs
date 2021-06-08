@@ -4,7 +4,7 @@ use std::{
     cmp::Ordering,
     fmt,
     hash::{Hash, Hasher},
-    sync::Arc,
+    rc::Rc,
 };
 
 use pest::Span;
@@ -214,7 +214,7 @@ pub enum Term<'i> {
     Real(f64),
     Ident(Ident<'i>),
     Tag(Ident<'i>),
-    String(Arc<str>),
+    String(Rc<str>),
     List(Vec<Node<'i>>),
     Entity {
         entries: Vec<Entry<'i>>,

@@ -1,11 +1,12 @@
 #![allow(dead_code)]
 
 use std::{
+    cell::RefCell,
     cmp::Ordering,
     collections::{HashMap, VecDeque},
     fmt,
     hash::{BuildHasher, Hash, Hasher},
-    sync::Arc,
+    rc::Rc,
 };
 
 use seahash::SeaHasher;
@@ -32,10 +33,10 @@ pub enum Value<'i> {
     Bool(bool),
     Num(Num),
     Tag(Ident<'i>),
-    String(Arc<str>),
-    List(Arc<VecDeque<Value<'i>>>),
-    Entity(Arc<HashMap<Key<'i>, Value<'i>, HashState>>),
-    Function(Arc<Function<'i>>),
+    String(Rc<str>),
+    List(Rc<VecDeque<Value<'i>>>),
+    Entity(Rc<HashMap<Key<'i>, Value<'i>, HashState>>),
+    Function(Rc<Function<'i>>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -84,9 +85,9 @@ impl<'i> PartialEq for Value<'i> {
             (Value::String(a), Value::String(b)) => a == b,
             (Value::Tag(a), Value::Tag(b)) => a == b,
             (Value::List(a), Value::List(b)) => a == b,
-            (Value::Function(a), Value::Function(b)) => Arc::ptr_eq(a, b),
+            (Value::Function(a), Value::Function(b)) => Rc::ptr_eq(a, b),
             (Value::Entity(a), Value::Entity(b)) => {
-                Arc::ptr_eq(a, b)
+                Rc::ptr_eq(a, b)
                     || a.len() == b.len()
                         && a.iter().all(|(k, v)| b.get(k).map_or(false, |v2| v == v2))
             }
@@ -106,12 +107,12 @@ impl<'i> PartialOrd for Value<'i> {
             (Value::String(a), Value::String(b)) => a.partial_cmp(b),
             (Value::Tag(a), Value::Tag(b)) => a.partial_cmp(b),
             (Value::List(a), Value::List(b)) => a.partial_cmp(b),
-            (Value::Function(a), Value::Function(b)) => Arc::as_ptr(a).partial_cmp(&Arc::as_ptr(b)),
+            (Value::Function(a), Value::Function(b)) => Rc::as_ptr(a).partial_cmp(&Rc::as_ptr(b)),
             (Value::Entity(a), Value::Entity(b)) => {
                 if self == other {
                     Some(Ordering::Equal)
                 } else {
-                    Arc::as_ptr(a).partial_cmp(&Arc::as_ptr(b))
+                    Rc::as_ptr(a).partial_cmp(&Rc::as_ptr(b))
                 }
             }
             (a, b) => a.discriminant_index().partial_cmp(&b.discriminant_index()),
@@ -138,8 +139,8 @@ impl<'i> Hash for Value<'i> {
             Value::String(s) => s.hash(state),
             Value::Tag(id) => id.hash(state),
             Value::List(list) => (**list).hash(state),
-            Value::Entity(entity) => Arc::as_ptr(entity).hash(state),
-            Value::Function(function) => Arc::as_ptr(function).hash(state),
+            Value::Entity(entity) => Rc::as_ptr(entity).hash(state),
+            Value::Function(function) => Rc::as_ptr(function).hash(state),
         }
     }
 }
@@ -148,7 +149,7 @@ impl<'i> Hash for Value<'i> {
 pub struct BimoFunction<'i> {
     pub scope: Scope<'i>,
     pub params: Params<'i>,
-    pub items: Items<'i>,
+    pub items: RefCell<Items<'i>>,
 }
 
 #[derive(Clone, Copy)]
