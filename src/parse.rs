@@ -86,7 +86,7 @@ pub(crate) fn parse<'i>(
                 scopes: vec![FunctionScope::default()],
                 errors: Vec::new(),
             };
-            for (name, _) in crate::builtin::FUNCTIONS {
+            for (name, _) in &*crate::builtin::FUNCTIONS {
                 state.scope().bindings.insert(name, Binding::Builtin);
             }
             let items = state.items(only(pairs.next().unwrap()));

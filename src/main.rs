@@ -49,7 +49,7 @@ fn main() {
         }
     } else {
         match runtime.eval(&input) {
-            Ok(val) => println!("{}", runtime.format(&val)),
+            Ok(_) => {}
             Err(e) => {
                 println!("{}", e);
                 exit(1);
