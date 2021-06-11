@@ -101,6 +101,7 @@ pub enum Node<'i> {
     UnExpr(UnExpr<'i>),
     Call(CallExpr<'i>),
     Access(AccessExpr<'i>),
+    If(IfExpr<'i>),
 }
 
 impl<'i> Node<'i> {
@@ -111,8 +112,17 @@ impl<'i> Node<'i> {
             Node::UnExpr(expr) => &expr.span,
             Node::Call(expr) => &expr.span,
             Node::Access(expr) => &expr.span,
+            Node::If(expr) => &expr.span,
         }
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct IfExpr<'i> {
+    pub condition: Box<Node<'i>>,
+    pub if_true: Box<Node<'i>>,
+    pub if_false: Box<Node<'i>>,
+    pub span: Span<'i>,
 }
 
 #[derive(Debug, Clone)]

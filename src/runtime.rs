@@ -249,7 +249,16 @@ impl<'i> Runtime<'i> {
             Node::UnExpr(expr) => self.eval_un_expr(expr),
             Node::Call(expr) => self.eval_call(expr),
             Node::Access(expr) => self.eval_access_expr(expr),
+            Node::If(expr) => self.eval_if_expr(expr),
         }
+    }
+    fn eval_if_expr(&mut self, expr: &IfExpr<'i>) -> RuntimeResult<'i> {
+        let condition = self.eval_node(&expr.condition)?;
+        self.eval_node(if condition.is_truthy() {
+            &expr.if_true
+        } else {
+            &expr.if_false
+        })
     }
     fn eval_term(&mut self, term: &Term<'i>) -> RuntimeResult<'i> {
         Ok(match term {

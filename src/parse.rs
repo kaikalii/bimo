@@ -255,8 +255,19 @@ impl<'i> ParseState<'i> {
         let pair = only(pair);
         match pair.as_rule() {
             Rule::expr_or => self.expr_or(pair),
+            Rule::expr_if => self.expr_if(pair),
             rule => unreachable!("{:?}", rule),
         }
+    }
+    fn expr_if(&mut self, pair: Pair<'i, Rule>) -> Node<'i> {
+        let span = pair.as_span();
+        let mut pairs = pair.into_inner();
+        Node::If(IfExpr {
+            condition: self.expr(pairs.next().unwrap()).into(),
+            if_true: self.expr(pairs.next().unwrap()).into(),
+            if_false: self.expr(pairs.next().unwrap()).into(),
+            span,
+        })
     }
     fn expr_or(&mut self, pair: Pair<'i, Rule>) -> Node<'i> {
         let mut pairs = pair.into_inner();
@@ -441,6 +452,13 @@ impl<'i> ParseState<'i> {
                 self.push_paren_scope();
                 let items = self.items(pair);
                 self.pop_paren_scope();
+                if items.len() == 1 && matches!(items[0], Item::Node(_)) {
+                    if let Item::Node(node) = items.into_iter().next().unwrap() {
+                        return node;
+                    } else {
+                        unreachable!()
+                    }
+                }
                 Term::Expr(items)
             }
             Rule::string => {
