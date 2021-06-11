@@ -61,7 +61,12 @@ expr = { expr_or | expr_if  }
 
 // Items
 equals = { "=" }
-def = { ident ~ ("(" ~ (param ~ ","?)* ~ ")")? ~ equals ~ expr }
+function_sig = { ident ~ ("(" ~ (param ~ ","?)* ~ ")") }
+list_pattern = { "[" ~ (ident ~ ","?)* ~ "]" }
+field_pattern = { ident ~ (":" ~ ident)? }
+entity_pattern = { "{" ~ (entity_pattern ~ ","?)* ~ "}" }
+def_left = { ident | function_sig | list_pattern | entity_pattern }
+def = { def_left ~ equals ~ expr }
 item = { def | expr }
 items = { (item ~ NEWLINE*)* }
 file = { SOI ~ NEWLINE* ~ items ~ EOI }
