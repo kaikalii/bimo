@@ -226,13 +226,13 @@ impl<'i> Runtime<'i> {
             Item::Node(node) => self.eval_node(node),
             Item::Def(def) => {
                 let val = if def.params.is_empty() {
-                    self.eval_items(&def.items)?
+                    self.eval_node(&def.body)?
                 } else {
                     Value::Function(
                         Function::Bimo(BimoFunction {
                             scope: self.scope.clone(),
                             params: def.params.clone(),
-                            items: def.items.clone().into(),
+                            body: def.body.clone().into(),
                         })
                         .into(),
                     )
@@ -321,7 +321,7 @@ impl<'i> Runtime<'i> {
             Term::Closure(closure) => Value::Function(Rc::new(Function::Bimo(BimoFunction {
                 scope: self.scope.clone(),
                 params: closure.params.clone(),
-                items: closure.body.clone().into(),
+                body: closure.body.clone().into(),
             }))),
         })
     }
@@ -397,7 +397,7 @@ impl<'i> Runtime<'i> {
                         call_scope.values.borrow_mut().insert(param.ident.name, val);
                     }
                     swap(&mut self.scope, &mut call_scope);
-                    let val = self.eval_items(&*function.items.borrow())?;
+                    let val = self.eval_node(&*function.body.borrow())?;
                     swap(&mut self.scope, &mut call_scope);
                     val
                 }

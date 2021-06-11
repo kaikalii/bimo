@@ -12,7 +12,7 @@ use std::{
 use seahash::SeaHasher;
 
 use crate::{
-    ast::{Ident, Items, Params},
+    ast::{Ident, Node, Params},
     num::Num,
     runtime::{BimoFn, Scope},
 };
@@ -149,7 +149,7 @@ impl<'i> Hash for Value<'i> {
 pub struct BimoFunction<'i> {
     pub scope: Scope<'i>,
     pub params: Params<'i>,
-    pub items: RefCell<Items<'i>>,
+    pub body: RefCell<Node<'i>>,
 }
 
 #[derive(Clone, Copy)]

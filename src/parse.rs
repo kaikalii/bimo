@@ -239,14 +239,14 @@ impl<'i> ParseState<'i> {
             }
         }
         let pair = pairs.next().unwrap();
-        let items = self.function_body(pair);
+        let body = self.function_body(pair);
         if is_function {
             self.pop_function_scope();
         }
         let def = Def {
             ident,
             params,
-            items,
+            body,
         };
         self.bind_def(def.clone());
         Item::Def(def)
@@ -533,12 +533,9 @@ impl<'i> ParseState<'i> {
         }
         binding
     }
-    fn function_body(&mut self, pair: Pair<'i, Rule>) -> Items<'i> {
+    fn function_body(&mut self, pair: Pair<'i, Rule>) -> Node<'i> {
         match pair.as_rule() {
-            Rule::items => self.items(pair),
-            Rule::expr => {
-                vec![Item::Node(self.expr(pair))]
-            }
+            Rule::expr => self.expr(pair),
             rule => unreachable!("{:?}", rule),
         }
     }

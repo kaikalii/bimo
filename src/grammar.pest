@@ -3,7 +3,7 @@ ws = { WHITESPACE }
 single_line_comment = @{ "--" ~ (!NEWLINE ~ ANY)* ~ &(NEWLINE | EOI) }
 multi_line_comment = @{ "'''" ~ (!"'''" ~ ANY)* ~ ("'''" | &EOI) }
 COMMENT = _{ multi_line_comment | single_line_comment }
-keyword = { "and" | "or" | "end" }
+keyword = { "and" | "or" }
 
 // Numbers
 int = @{ ("+" | "-")? ~ ASCII_DIGIT+ }
@@ -42,7 +42,7 @@ op_neg = { "-" }
 paren_expr = { "(" ~ NEWLINE? ~ items ~ ")" }
 param = { ident }
 closure_params = { (param | "|" ~ (param ~ ","?)*) ~ "|" }
-closure = { closure_params ~ (NEWLINE ~ items ~ "end" | expr ~ "end"?)}
+closure = { closure_params ~ expr }
 tag_literal = ${ "#" ~ ident }
 term = { real | int | closure | ident | tag_literal | string | paren_expr | list_literal | entity_literal }
 call_args = { "(" ~ NEWLINE? ~ (expr ~ ","? ~ NEWLINE?)* ~ ")" }
@@ -60,7 +60,7 @@ expr = { expr_or }
 
 // Items
 equals = { "=" }
-def = { ident ~ ("(" ~ (param ~ ","?)* ~ ")")? ~ equals ~ (NEWLINE ~ items ~ "end" | expr) }
+def = { ident ~ ("(" ~ (param ~ ","?)* ~ ")")? ~ equals ~ expr }
 item = { def | expr }
 items = { (item ~ NEWLINE*)+ }
 file = { SOI ~ NEWLINE* ~ items? ~ EOI }

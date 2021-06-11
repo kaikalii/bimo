@@ -91,7 +91,7 @@ pub type Params<'i> = Vec<Param<'i>>;
 pub struct Def<'i> {
     pub ident: Ident<'i>,
     pub params: Params<'i>,
-    pub items: Items<'i>,
+    pub body: Node<'i>,
 }
 
 #[derive(Debug, Clone)]
@@ -229,5 +229,5 @@ pub enum Term<'i> {
 pub struct Closure<'i> {
     pub span: Span<'i>,
     pub params: Params<'i>,
-    pub body: Items<'i>,
+    pub body: Node<'i>,
 }
