@@ -24,16 +24,24 @@ macro_rules! require_type {
         let input = $input;
         match input {
             $(Value::$variant($name) => $expr,)*
-            _ => {return Err(RuntimeErrorKind::Generic(format!(
-                "Expected type(s) {} but found {}",
-                [$(stringify!($variant)),*]
-                    .iter()
-                    .enumerate()
-                    .map(|(i, name)| format!("{}{}", if i > 0 { ", " } else { "" }, name.to_lowercase()))
-                    .collect::<String>(),
-                input.type_name()
-            ))
-            .span($span.clone()));}
+            _ => {
+                let types = [$(stringify!($variant)),*];
+                return Err(RuntimeErrorKind::Generic(format!(
+                    "Expected {}, but found {}",
+                    types
+                        .iter()
+                        .enumerate()
+                        .map(|(i, name)| format!(
+                            "{}{}",
+                            if i == types.len() - 1 {
+                                if types.len() == 2 { " or " } else { ", or "}
+                            }
+                            else if i > 0 { ", " } else { "" }, name.to_lowercase()))
+                        .collect::<String>(),
+                    input.type_name()
+                ))
+                .span($span.clone()));
+            }
         }
     }};
 }

@@ -329,15 +329,7 @@ impl<'i> Runtime<'i> {
                     if let Some(val) = map.get(key) {
                         val.clone()
                     } else {
-                        return Err(RuntimeErrorKind::InvalidFieldAccess {
-                            root: "entity".into(),
-                            field: Some(match key {
-                                Key::Field(ident) => format!("field {}", ident.name),
-                                Key::Value(val) => format!("key {}", self.format(val)),
-                                Key::Tag(ident) => format!("tag #{}", ident.name),
-                            }),
-                        }
-                        .span(expr.span.clone()));
+                        Value::Nil
                     }
                 }
             },
