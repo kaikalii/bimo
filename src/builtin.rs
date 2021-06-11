@@ -4,6 +4,7 @@ use once_cell::sync::Lazy;
 
 use crate::{
     interpret::RuntimeErrorKind,
+    num::Num,
     value::{RustFunction, Value},
 };
 
@@ -19,16 +20,20 @@ macro_rules! functions {
 }
 
 macro_rules! require_type {
-    ($input:expr, $span:expr, $variant:ident($name:ident), $expr:expr) => {{
+    ($input:expr, $span:expr, $($variant:ident($name:ident) => $expr:expr),* $(,)?) => {{
         let input = $input;
-        if let Value::$variant($name) = input {
-            $expr
-        } else {
-            return Err(RuntimeErrorKind::Generic(format!(
-                "Expected type {}",
-                stringify!($variant).to_lowercase()
+        match input {
+            $(Value::$variant($name) => $expr,)*
+            _ => {return Err(RuntimeErrorKind::Generic(format!(
+                "Expected type(s) {} but found {}",
+                [$(stringify!($variant)),*]
+                    .iter()
+                    .enumerate()
+                    .map(|(i, name)| format!("{}{}", if i > 0 { ", " } else { "" }, name.to_lowercase()))
+                    .collect::<String>(),
+                input.type_name()
             ))
-            .span($span.clone()));
+            .span($span.clone()));}
         }
     }};
 }
@@ -47,8 +52,15 @@ functions!(
         Ok(require_type!(
             rt.val("n"),
             span,
-            Num(num),
-            Value::Num(num.to_f64().sqrt().into())
+            Num(num) => Value::Num(num.to_f64().sqrt().into())
         ))
+    },
+    len(v) = |rt, span| {
+        Ok(Value::Num(Num::Int(require_type!(
+            rt.val("v"),
+            span,
+            String(s) => s.len(),
+            List(v) => v.len(),
+        ) as i64)))
     }
 );
