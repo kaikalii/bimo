@@ -309,12 +309,10 @@ impl<'i> Runtime<'i> {
             }
             Term::Expr(items) => {
                 self.scope.push(Scope::default());
-                let res = items
-                    .iter()
-                    .map(|item| self.eval_item(item))
-                    .last()
-                    .transpose()?
-                    .unwrap_or(Value::Nil);
+                let mut res = Value::Nil;
+                for item in items {
+                    res = self.eval_item(item)?;
+                }
                 self.scope.pop();
                 res
             }
@@ -460,14 +458,14 @@ impl<'i> Runtime<'i> {
                     return Err(RuntimeErrorKind::InvalidListIndex {
                         index: first_arg.type_name().into(),
                     }
-                    .span(expr.span.clone()));
+                    .span(expr.caller.span().clone()));
                 }
             }
             val => {
                 return Err(RuntimeErrorKind::InvalidCall {
                     called: val.type_name().into(),
                 }
-                .span(expr.span.clone()))
+                .span(expr.caller.span().clone()))
             }
         })
     }
