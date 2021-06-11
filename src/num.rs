@@ -36,6 +36,12 @@ impl Num {
             Num::Real(r) => r,
         }
     }
+    pub fn to_i64(self) -> i64 {
+        match self {
+            Num::Int(i) => i,
+            Num::Real(r) => r as i64,
+        }
+    }
 }
 
 macro_rules! bin_assign {

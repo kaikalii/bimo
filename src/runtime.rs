@@ -40,6 +40,9 @@ pub enum RuntimeErrorKind {
         root: String,
         field: Option<String>,
     },
+    InvalidListIndex {
+        index: String,
+    },
     Generic(String),
 }
 
@@ -75,6 +78,9 @@ impl fmt::Display for RuntimeErrorKind {
                 } else {
                     write!(f, "{} does not have fields", root)
                 }
+            }
+            RuntimeErrorKind::InvalidListIndex { index } => {
+                write!(f, "List cannot be indexed with {}", index)
             }
             RuntimeErrorKind::Generic(message) => write!(f, "{}", message),
         }
@@ -413,6 +419,50 @@ impl<'i> Runtime<'i> {
                     res?
                 }
             },
+            Value::Entity(map) => {
+                let first_arg = expr
+                    .args
+                    .first()
+                    .map(|node| self.eval_node(node))
+                    .transpose()?
+                    .unwrap_or(Value::Nil);
+                if let Some(val) = map.get(&Key::Value(first_arg)) {
+                    val.clone()
+                } else {
+                    Value::Nil
+                }
+            }
+            Value::List(list) => {
+                let first_arg = expr
+                    .args
+                    .first()
+                    .map(|node| self.eval_node(node))
+                    .transpose()?
+                    .unwrap_or(Value::Nil);
+                if let Value::Num(num) = first_arg {
+                    let index = num.to_i64();
+                    if index >= 0 {
+                        let index = index as usize;
+                        if index < list.len() {
+                            list[index].clone()
+                        } else {
+                            Value::Nil
+                        }
+                    } else {
+                        let rev_index = (-index) as usize;
+                        if rev_index <= list.len() {
+                            list[list.len() - rev_index].clone()
+                        } else {
+                            Value::Nil
+                        }
+                    }
+                } else {
+                    return Err(RuntimeErrorKind::InvalidListIndex {
+                        index: first_arg.type_name().into(),
+                    }
+                    .span(expr.span.clone()));
+                }
+            }
             val => {
                 return Err(RuntimeErrorKind::InvalidCall {
                     called: val.type_name().into(),

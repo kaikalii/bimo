@@ -39,9 +39,9 @@ op_or = { "or" }
 op_neg = { "-" }
 
 // Expressions
-paren_expr = { "(" ~ NEWLINE? ~ items ~ NEWLINE? ~ ")" }
+paren_expr = { "(" ~ NEWLINE? ~ items ~ ")" }
 param = { ident }
-closure_params = { (param | "|" ~ param*) ~ "|" }
+closure_params = { (param | "|" ~ (param ~ ","?)*) ~ "|" }
 closure = { closure_params ~ (NEWLINE ~ items ~ "end" | expr ~ "end"?)}
 tag_literal = ${ "#" ~ ident }
 term = { real | int | closure | ident | tag_literal | string | paren_expr | list_literal | entity_literal }
@@ -61,7 +61,7 @@ expr = { expr_or }
 
 // Items
 equals = { "=" }
-def = { ident ~ ("(" ~ param* ~ ")")? ~ equals ~ (NEWLINE ~ items ~ "end" | expr) }
+def = { ident ~ ("(" ~ (param ~ ","?)* ~ ")")? ~ equals ~ (NEWLINE ~ items ~ "end" | expr) }
 item = { def | expr }
 items = { (item ~ NEWLINE*)+ }
 file = { SOI ~ NEWLINE* ~ items? ~ EOI }
