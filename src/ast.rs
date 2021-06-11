@@ -9,6 +9,8 @@ use std::{
 
 use pest::Span;
 
+use crate::value::Key;
+
 #[derive(Clone)]
 pub struct Ident<'i> {
     pub name: &'i str,
@@ -188,7 +190,7 @@ pub struct CallExpr<'i> {
 
 #[derive(Debug, Clone)]
 pub enum Accessor<'i> {
-    Field(&'i str),
+    Key(Key<'i>),
 }
 
 #[derive(Debug, Clone)]

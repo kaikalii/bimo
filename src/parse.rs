@@ -9,7 +9,7 @@ use pest::{
     Parser, RuleType, Span,
 };
 
-use crate::{ast::*, interpret::Runtime};
+use crate::{ast::*, interpret::Runtime, value::Key};
 
 #[derive(Debug)]
 pub enum CheckError<'i> {
@@ -391,7 +391,15 @@ impl<'i> ParseState<'i> {
                         span,
                     });
                 }
-                Rule::field_access => todo!(),
+                Rule::field_access => {
+                    let span = pair.as_span();
+                    let ident = self.ident(only(pair));
+                    root = Node::Access(AccessExpr {
+                        root: root.into(),
+                        accessor: Accessor::Key(Key::Field(ident)),
+                        span,
+                    })
+                }
                 rule => unreachable!("{:?}", rule),
             }
         }

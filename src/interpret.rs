@@ -36,6 +36,10 @@ pub enum RuntimeErrorKind {
     InvalidEntityDefault {
         default: String,
     },
+    InvalidFieldAccess {
+        root: String,
+        field: Option<String>,
+    },
 }
 
 impl RuntimeErrorKind {
@@ -55,7 +59,7 @@ impl fmt::Display for RuntimeErrorKind {
                 BinOp::Less | BinOp::Greater | BinOp::LessOrEqual | BinOp::GreaterOrEqual => {
                     write!(f, "Unable to compare {} and {}", left, right)
                 }
-                _ => todo!(),
+                op => unreachable!("{:?} operation failed when it should not be able", op),
             },
             RuntimeErrorKind::InvalidUnaryOperation { operand, op } => match op {
                 UnOp::Neg => write!(f, "Unable to negate {}", operand),
@@ -63,6 +67,13 @@ impl fmt::Display for RuntimeErrorKind {
             RuntimeErrorKind::InvalidCall { called } => write!(f, "Unable to call {}", called),
             RuntimeErrorKind::InvalidEntityDefault { default } => {
                 write!(f, "Entity cannot be default initialized from {}", default)
+            }
+            RuntimeErrorKind::InvalidFieldAccess { root, field } => {
+                if let Some(field) = field {
+                    write!(f, "{} cannot has no field {}", root, field)
+                } else {
+                    write!(f, "{} does not have fields", root)
+                }
             }
         }
     }
@@ -308,8 +319,34 @@ impl<'i> Runtime<'i> {
             }))),
         })
     }
-    fn eval_access_expr(&mut self, _expr: &AccessExpr<'i>) -> RuntimeResult<'i> {
-        todo!()
+    fn eval_access_expr(&mut self, expr: &AccessExpr<'i>) -> RuntimeResult<'i> {
+        let root = self.eval_node(&expr.root)?;
+        Ok(match root {
+            Value::Entity(map) => match &expr.accessor {
+                Accessor::Key(key) => {
+                    if let Some(val) = map.get(key) {
+                        val.clone()
+                    } else {
+                        return Err(RuntimeErrorKind::InvalidFieldAccess {
+                            root: "entity".into(),
+                            field: Some(match key {
+                                Key::Field(ident) => format!("field {}", ident.name),
+                                Key::Value(val) => format!("key {}", self.format(val)),
+                                Key::Tag(ident) => format!("tag #{}", ident.name),
+                            }),
+                        }
+                        .span(expr.span.clone()));
+                    }
+                }
+            },
+            val => {
+                return Err(RuntimeErrorKind::InvalidFieldAccess {
+                    root: self.format(&val).to_string(),
+                    field: None,
+                }
+                .span(expr.span.clone()))
+            }
+        })
     }
     fn eval_bin_expr(&mut self, expr: &BinExpr<'i>) -> RuntimeResult<'i> {
         let left = self.eval_node(&expr.left)?;
