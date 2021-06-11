@@ -13,8 +13,8 @@ use seahash::SeaHasher;
 
 use crate::{
     ast::{Ident, Items, Params},
-    interpret::{BimoFn, Scope},
     num::Num,
+    runtime::{BimoFn, Scope},
 };
 
 #[derive(Clone)]

@@ -1,4 +1,4 @@
-use crate::{interpret::Runtime, num::Num, value::Value};
+use crate::{num::Num, runtime::Runtime, value::Value};
 
 #[test]
 fn and_or() {

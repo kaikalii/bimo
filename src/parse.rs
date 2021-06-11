@@ -9,7 +9,7 @@ use pest::{
     Parser, RuleType, Span,
 };
 
-use crate::{ast::*, interpret::Runtime, value::Key};
+use crate::{ast::*, runtime::Runtime, value::Key};
 
 #[derive(Debug)]
 pub enum CheckError<'i> {

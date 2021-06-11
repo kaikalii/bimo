@@ -1,8 +1,8 @@
 mod ast;
 mod builtin;
-mod interpret;
 mod num;
 mod parse;
+mod runtime;
 #[cfg(test)]
 mod test;
 mod value;
@@ -14,7 +14,7 @@ use clap::Clap;
 fn main() {
     use std::process::*;
 
-    use crate::interpret::Runtime;
+    use crate::runtime::Runtime;
 
     color_backtrace::install();
 

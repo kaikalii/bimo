@@ -3,8 +3,8 @@ use std::io::{stdout, Write};
 use once_cell::sync::Lazy;
 
 use crate::{
-    interpret::RuntimeErrorKind,
     num::Num,
+    runtime::RuntimeErrorKind,
     value::{RustFunction, Value},
 };
 
