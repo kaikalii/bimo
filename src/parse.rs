@@ -373,7 +373,7 @@ impl<'i> ParseState<'i> {
     }
     fn expr_access(&mut self, pair: Pair<'i, Rule>) -> Node<'i> {
         let mut pairs = pair.into_inner();
-        let mut root = self.expr_call(pairs.next().unwrap());
+        let mut root = self.term(pairs.next().unwrap());
         for pair in pairs {
             let pair = only(pair);
             match pair.as_rule() {
@@ -400,25 +400,19 @@ impl<'i> ParseState<'i> {
                         span,
                     })
                 }
+                Rule::call_args => {
+                    let span = pair.as_span();
+                    let args = self.call_args(pair);
+                    root = Node::Call(CallExpr {
+                        caller: root.into(),
+                        args,
+                        span,
+                    })
+                }
                 rule => unreachable!("{:?}", rule),
             }
         }
         root
-    }
-    fn expr_call(&mut self, pair: Pair<'i, Rule>) -> Node<'i> {
-        let span = pair.as_span();
-        let mut pairs = pair.into_inner();
-        let caller = self.term(pairs.next().unwrap());
-        if let Some(pair) = pairs.next() {
-            let args = self.call_args(pair);
-            Node::Call(CallExpr {
-                caller: caller.into(),
-                args,
-                span,
-            })
-        } else {
-            caller
-        }
     }
     fn call_args(&mut self, pair: Pair<'i, Rule>) -> Vec<Node<'i>> {
         pair.into_inner().map(|pair| self.expr(pair)).collect()
