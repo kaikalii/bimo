@@ -17,7 +17,7 @@ use crate::{
     value::{BimoFunction, Function, HashState, Key, Value},
 };
 
-pub type BimoFn<'i> = fn(&mut Runtime<'i>) -> RuntimeResult<'i>;
+pub type BimoFn<'i> = fn(&mut Runtime<'i>, span: &Span<'i>) -> RuntimeResult<'i>;
 
 #[derive(Debug)]
 pub enum RuntimeErrorKind {
@@ -40,6 +40,7 @@ pub enum RuntimeErrorKind {
         root: String,
         field: Option<String>,
     },
+    Generic(String),
 }
 
 impl RuntimeErrorKind {
@@ -75,6 +76,7 @@ impl fmt::Display for RuntimeErrorKind {
                     write!(f, "{} does not have fields", root)
                 }
             }
+            RuntimeErrorKind::Generic(message) => write!(f, "{}", message),
         }
     }
 }
@@ -414,7 +416,7 @@ impl<'i> Runtime<'i> {
                         call_scope.values.borrow_mut().insert(param, val);
                     }
                     self.scope.push(call_scope);
-                    let res = (function.f)(self);
+                    let res = (function.f)(self, &expr.span);
                     self.scope.pop();
                     res?
                 }

@@ -29,6 +29,15 @@ impl Default for Num {
     }
 }
 
+impl Num {
+    pub fn to_f64(self) -> f64 {
+        match self {
+            Num::Int(i) => i as f64,
+            Num::Real(r) => r,
+        }
+    }
+}
+
 macro_rules! bin_assign {
     ($trait:ident, $method:ident) => {
         impl $trait for Num {
