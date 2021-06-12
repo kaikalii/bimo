@@ -21,7 +21,10 @@ fn main() {
     let app = App::parse();
 
     // Parse and check
-    let main_path = if let Some(path) = app.target {
+    let main_path = if let Some(mut path) = app.target {
+        if path.extension().is_none() && !path.exists() {
+            path = path.with_extension("bimo");
+        }
         if !path.exists() {
             println!("input file \"{}\" does not exist", path.to_string_lossy());
             exit(1);

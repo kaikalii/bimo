@@ -73,7 +73,7 @@ impl<'i> Item<'i> {
     pub fn span(&self) -> &Span<'i> {
         match self {
             Item::Node(node) => node.span(),
-            Item::Def(def) => &def.ident.span,
+            Item::Def(def) => &def.left.span(),
         }
     }
 }
@@ -89,9 +89,69 @@ pub type Params<'i> = Vec<Param<'i>>;
 
 #[derive(Debug, Clone)]
 pub struct Def<'i> {
-    pub ident: Ident<'i>,
-    pub params: Params<'i>,
+    pub left: DefLeft<'i>,
     pub body: Node<'i>,
+}
+
+#[derive(Debug, Clone)]
+pub enum DefLeft<'i> {
+    Pattern(Pattern<'i>),
+    Function {
+        ident: Ident<'i>,
+        params: Params<'i>,
+        span: Span<'i>,
+    },
+}
+
+impl<'i> DefLeft<'i> {
+    pub fn span(&self) -> &Span<'i> {
+        match self {
+            DefLeft::Pattern(pattern) => pattern.span(),
+            DefLeft::Function { span, .. } => span,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum Pattern<'i> {
+    Single(Ident<'i>),
+    List {
+        patterns: Vec<Pattern<'i>>,
+        span: Span<'i>,
+    },
+    Entity {
+        patterns: Vec<FieldPattern<'i>>,
+        span: Span<'i>,
+    },
+}
+
+impl<'i> Pattern<'i> {
+    pub fn span(&self) -> &Span<'i> {
+        match self {
+            Pattern::Single(ident) => &ident.span,
+            Pattern::List { span, .. } => span,
+            Pattern::Entity { span, .. } => span,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum FieldPattern<'i> {
+    SameName(Ident<'i>),
+    Pattern {
+        field: Ident<'i>,
+        pattern: Pattern<'i>,
+        span: Span<'i>,
+    },
+}
+
+impl<'i> FieldPattern<'i> {
+    pub fn span(&self) -> &Span<'i> {
+        match self {
+            FieldPattern::SameName(ident) => &ident.span,
+            FieldPattern::Pattern { span, .. } => span,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]

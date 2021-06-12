@@ -1,6 +1,6 @@
 #![allow(clippy::upper_case_acronyms)]
 
-use std::{collections::HashMap, fmt};
+use std::{collections::HashSet, fmt};
 
 use itertools::Itertools;
 use pest::{
@@ -87,7 +87,7 @@ pub(crate) fn parse<'i>(
                 errors: Vec::new(),
             };
             for (name, _) in &*crate::builtin::FUNCTIONS {
-                state.scope().bindings.insert(name, Binding::Builtin);
+                state.scope().bindings.insert(name);
             }
             let items = state.items(only(pairs.next().unwrap()));
             if state.errors.is_empty() {
@@ -100,17 +100,9 @@ pub(crate) fn parse<'i>(
     }
 }
 
-#[derive(Debug, Clone)]
-enum Binding<'i> {
-    Def(Def<'i>),
-    Param(u8),
-    Builtin,
-    Unfinished,
-}
-
 #[derive(Default)]
 struct ParenScope<'i> {
-    bindings: HashMap<&'i str, Binding<'i>>,
+    bindings: HashSet<&'i str>,
 }
 
 struct FunctionScope<'i> {
@@ -156,17 +148,26 @@ impl<'i> ParseState<'i> {
     fn depth(&self) -> u8 {
         self.scopes.len() as u8
     }
-    fn bind_def(&mut self, def: Def<'i>) {
-        self.scope()
-            .bindings
-            .insert(def.ident.name, Binding::Def(def));
+    fn bind(&mut self, name: &'i str) {
+        self.scope().bindings.insert(name);
     }
-    fn bind_param(&mut self, name: &'i str) {
-        let depth = self.depth() - 1;
-        self.scope().bindings.insert(name, Binding::Param(depth));
-    }
-    fn bind_unfinished(&mut self, name: &'i str) {
-        self.scope().bindings.insert(name, Binding::Unfinished);
+    fn bind_pattern(&mut self, pattern: &Pattern<'i>) {
+        match pattern {
+            Pattern::Single(ident) => self.bind(ident.name),
+            Pattern::List { patterns, .. } => {
+                for pattern in patterns {
+                    self.bind_pattern(pattern);
+                }
+            }
+            Pattern::Entity { patterns, .. } => {
+                for pattern in patterns {
+                    match pattern {
+                        FieldPattern::SameName(ident) => self.bind(ident.name),
+                        FieldPattern::Pattern { pattern, .. } => self.bind_pattern(pattern),
+                    }
+                }
+            }
+        }
     }
     fn items(&mut self, pair: Pair<'i, Rule>) -> Items<'i> {
         let mut items = Vec::new();
@@ -217,39 +218,83 @@ impl<'i> ParseState<'i> {
     }
     fn def(&mut self, pair: Pair<'i, Rule>) -> Item<'i> {
         let mut pairs = pair.into_inner();
-        let ident = self.bound_ident(pairs.next().unwrap());
-        let mut params = Vec::new();
-        for pair in pairs.by_ref() {
-            if let Rule::param = pair.as_rule() {
-                params.push(self.param(pair));
-            } else {
-                break;
+        let pair = only(pairs.next().unwrap());
+        let left = match pair.as_rule() {
+            Rule::function_sig => {
+                let span = pair.as_span();
+                let mut pairs = pair.into_inner();
+                let ident = self.ident(pairs.next().unwrap());
+                if ident.is_underscore() {
+                    self.errors
+                        .push(CheckError::FunctionNamedUnderscore(ident.span.clone()));
+                }
+                self.bind(ident.name);
+                self.push_function_scope();
+                let mut params = Vec::new();
+                for pair in pairs {
+                    match pair.as_rule() {
+                        Rule::param => {
+                            let param = self.param(pair);
+                            self.bind(param.ident.name);
+                            params.push(param)
+                        }
+                        rule => unreachable!("{:?}", rule),
+                    }
+                }
+                DefLeft::Function {
+                    ident,
+                    params,
+                    span,
+                }
             }
-        }
-        let is_function = !params.is_empty();
-        if is_function {
-            if ident.is_underscore() {
-                self.errors
-                    .push(CheckError::FunctionNamedUnderscore(ident.span.clone()));
+            Rule::pattern => {
+                let pattern = self.pattern(only(pair));
+                self.bind_pattern(&pattern);
+                DefLeft::Pattern(pattern)
             }
-            self.bind_unfinished(ident.name);
-            self.push_function_scope();
-            for param in &params {
-                self.bind_param(param.ident.name);
-            }
-        }
-        let pair = pairs.next().unwrap();
-        let body = self.function_body(pair);
-        if is_function {
+            rule => unreachable!("{:?}", rule),
+        };
+        let body = self.expr(pairs.next().unwrap());
+        if let DefLeft::Function { .. } = left {
             self.pop_function_scope();
         }
-        let def = Def {
-            ident,
-            params,
-            body,
-        };
-        self.bind_def(def.clone());
-        Item::Def(def)
+        Item::Def(Def { left, body })
+    }
+    fn pattern(&mut self, pair: Pair<'i, Rule>) -> Pattern<'i> {
+        match pair.as_rule() {
+            Rule::ident => Pattern::Single(self.ident(pair)),
+            Rule::list_pattern => {
+                let span = pair.as_span();
+                let mut patterns = Vec::new();
+                for pair in pair.into_inner() {
+                    patterns.push(self.pattern(pair));
+                }
+                Pattern::List { patterns, span }
+            }
+            Rule::entity_pattern => {
+                let span = pair.as_span();
+                let mut patterns = Vec::new();
+                for pair in pair.into_inner() {
+                    patterns.push(self.field_pattern(pair));
+                }
+                Pattern::Entity { patterns, span }
+            }
+            rule => unreachable!("{:?}", rule),
+        }
+    }
+    fn field_pattern(&mut self, pair: Pair<'i, Rule>) -> FieldPattern<'i> {
+        let span = pair.as_span();
+        let mut pairs = pair.into_inner();
+        let ident = self.ident(pairs.next().unwrap());
+        if let Some(pair) = pairs.next() {
+            FieldPattern::Pattern {
+                field: ident,
+                pattern: self.pattern(pair),
+                span,
+            }
+        } else {
+            FieldPattern::SameName(ident)
+        }
     }
     fn expr(&mut self, pair: Pair<'i, Rule>) -> Node<'i> {
         let pair = only(pair);
@@ -476,7 +521,7 @@ impl<'i> ParseState<'i> {
                 let params: Vec<Param> = params_pairs.map(|pair| self.param(pair)).collect();
                 self.push_function_scope();
                 for param in &params {
-                    self.bind_param(param.ident.name);
+                    self.bind(param.ident.name);
                 }
                 let pair = pairs.next().unwrap();
                 let body = self.function_body(pair);
@@ -534,22 +579,21 @@ impl<'i> ParseState<'i> {
             }
         }
     }
-    fn lookup_name<'b>(scopes: &'b [FunctionScope<'i>], name: &str) -> Option<&'b Binding<'i>> {
-        scopes.iter().rev().find_map(|fscope| {
+    fn lookup_name<'b>(scopes: &'b [FunctionScope<'i>], name: &str) -> bool {
+        scopes.iter().rev().any(|fscope| {
             fscope
                 .scopes
                 .iter()
                 .rev()
-                .find_map(|pscope| pscope.bindings.get(name))
+                .any(|pscope| pscope.bindings.contains(name))
         })
     }
     /// Verify that a binding with the given ident exists
-    fn verify_ident(&mut self, ident: &Ident<'i>) -> Option<&Binding<'i>> {
-        let binding = Self::lookup_name(&self.scopes, ident.name);
-        if binding.is_none() {
+    fn verify_ident(&mut self, ident: &Ident<'i>) {
+        let exists = Self::lookup_name(&self.scopes, ident.name);
+        if !exists {
             self.errors.push(CheckError::UnknownDef(ident.clone()));
         }
-        binding
     }
     fn function_body(&mut self, pair: Pair<'i, Rule>) -> Node<'i> {
         match pair.as_rule() {

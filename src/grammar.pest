@@ -60,13 +60,13 @@ expr_if = { "if" ~ expr ~ "then"? ~ NEWLINE? ~ expr ~ "else" ~ expr }
 expr = { expr_or | expr_if  }
 
 // Items
-equals = { "=" }
-function_sig = { ident ~ ("(" ~ (param ~ ","?)* ~ ")") }
+function_sig = { ident ~ "(" ~ (param ~ ","?)* ~ ")" }
 list_pattern = { "[" ~ (ident ~ ","?)* ~ "]" }
 field_pattern = { ident ~ (":" ~ ident)? }
 entity_pattern = { "{" ~ (entity_pattern ~ ","?)* ~ "}" }
-def_left = { ident | function_sig | list_pattern | entity_pattern }
-def = { def_left ~ equals ~ expr }
+pattern = { ident | list_pattern | entity_pattern }
+def_left = { function_sig | pattern }
+def = { def_left ~ "=" ~ expr }
 item = { def | expr }
 items = { (item ~ NEWLINE*)* }
 file = { SOI ~ NEWLINE* ~ items ~ EOI }
