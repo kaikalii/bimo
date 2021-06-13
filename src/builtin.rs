@@ -64,11 +64,11 @@ functions!(
         ))
     },
     len(v) = |rt, span| {
-        Ok(Value::Num(Num::Int(require_type!(
+        Ok(require_type!(
             rt.val("v"),
             span,
-            String(s) => s.len(),
-            List(v) => v.len(),
-        ) as i64)))
+            String(s) => Value::Num(Num::Int(s.len() as i64)),
+            List(list) => list.len().map(|n| Value::Num(Num::Int(n as i64))).unwrap_or(Value::Nil),
+        ))
     }
 );

@@ -12,6 +12,7 @@ use pest::{
 use crate::{
     ast::*,
     builtin::FUNCTIONS,
+    entity::{Entity, Key},
     num::Num,
     parse::{parse, CheckError, Rule},
     value::*,
@@ -366,12 +367,12 @@ impl<'i> Runtime<'i> {
             Term::Int(i) => Value::Num((*i).into()),
             Term::Real(r) => Value::Num((*r).into()),
             Term::String(s) => Value::String(s.clone()),
-            Term::List(nodes) => Value::List(Rc::new(
+            Term::List(nodes) => Value::List(
                 nodes
                     .iter()
                     .map(|node| self.eval_node(node))
                     .collect::<Result<_, _>>()?,
-            )),
+            ),
             Term::Entity { entries, default } => {
                 let mut entity = Entity::with_capacity(entries.len());
                 for entry in entries {
@@ -541,15 +542,19 @@ impl<'i> Runtime<'i> {
                     let index = num.to_i64();
                     if index >= 0 {
                         let index = index as usize;
-                        if index < list.len() {
+                        if index < list.len().unwrap_or(usize::MAX) {
                             list[index].clone()
                         } else {
                             Value::Nil
                         }
                     } else {
                         let rev_index = (-index) as usize;
-                        if rev_index <= list.len() {
-                            list[list.len() - rev_index].clone()
+                        if let Some(len) = list.len() {
+                            if rev_index <= len {
+                                list[len - rev_index].clone()
+                            } else {
+                                Value::Nil
+                            }
                         } else {
                             Value::Nil
                         }
@@ -641,7 +646,7 @@ impl<'i, 'r> fmt::Display for ValueFormatter<'i, 'r> {
                         Key::Value(key) => write!(
                             f,
                             "{:?} => {:?}",
-                            self.runtime.format(key),
+                            self.runtime.format(&key),
                             self.runtime.format(val)
                         )?,
                     }

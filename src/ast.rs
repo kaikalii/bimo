@@ -9,7 +9,7 @@ use std::{
 
 use pest::Span;
 
-use crate::value::Key;
+use crate::entity::Key;
 
 #[derive(Clone)]
 pub struct Ident<'i> {
