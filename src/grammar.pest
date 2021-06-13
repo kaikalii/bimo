@@ -48,7 +48,8 @@ param = { pattern }
 closure_params = { (pattern | "|" ~ (pattern ~ ","?)*) ~ "|" }
 closure = { closure_params ~ NEWLINE? ~ expr }
 tag_literal = ${ "#" ~ ident }
-term = { real | int | closure | ident | tag_literal | string | paren_expr | list_literal | entity_literal }
+pattern_literal = ${ "?" ~ pattern }
+term = { real | int | closure | ident | tag_literal | string | paren_expr | list_literal | entity_literal | pattern_literal }
 
 // Access
 call_args = { "(" ~ NEWLINE? ~ (expr ~ ","? ~ NEWLINE?)* ~ ")" }
@@ -72,7 +73,7 @@ expr = { expr_if | expr_or }
 list_pattern = { "[" ~ (pattern ~ ","?)* ~ "]" }
 field_pattern = { ident ~ (":" ~ pattern)? }
 entity_pattern = { "{" ~ (field_pattern ~ ","?)* ~ "}" }
-pattern = { ident | int | string | list_pattern | entity_pattern }
+pattern = !{ ident | int | string | list_pattern | entity_pattern }
 
 // Items
 function_def = { ident ~ "(" ~ (param ~ ","?)* ~ ")" ~ "=" ~ NEWLINE? ~ expr }

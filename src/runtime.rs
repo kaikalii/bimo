@@ -15,6 +15,7 @@ use crate::{
     entity::{Entity, Key},
     num::Num,
     parse::{parse, CheckError, Rule},
+    pattern::{FieldPattern, Pattern},
     value::*,
 };
 
@@ -161,68 +162,58 @@ impl<'i> Scope<'i> {
             self.values.borrow_mut().insert(ident.name, val);
         }
     }
-    fn bind_pattern(&mut self, pattern: &Pattern<'i>, val: Value<'i>) -> bool {
+    fn bind_pattern(&mut self, pattern: &Pattern<'i>, val: Value<'i>) -> Value<'i> {
         match pattern {
             Pattern::Single(ident) => {
                 self.bind(ident, val);
-                true
+                Value::Bool(true)
             }
-            Pattern::List { patterns, .. } => {
-                if let Value::List(list) = val {
-                    patterns
-                        .iter()
-                        .zip(list.iter().chain(repeat(&Value::Nil)))
-                        .fold(true, |acc, (pattern, item)| {
-                            self.bind_pattern(pattern, item.clone()) && acc
-                        })
-                } else {
-                    for pattern in patterns {
-                        self.bind_pattern(pattern, Value::Nil);
-                    }
-                    false
-                }
-            }
-            Pattern::Entity { patterns, .. } => {
-                if let Value::Entity(map) = val {
-                    patterns.iter().fold(true, |acc, pattern| {
-                        self.bind_field_pattern(pattern, Some(&map)) && acc
+            Pattern::List { patterns, .. } => Value::Bool(if let Value::List(list) = val {
+                patterns
+                    .iter()
+                    .zip(list.iter().chain(repeat(&Value::Nil)))
+                    .fold(true, |acc, (pattern, item)| {
+                        self.bind_pattern(pattern, item.clone()).is_truthy() && acc
                     })
-                } else {
-                    for pattern in patterns {
-                        self.bind_field_pattern(pattern, None);
-                    }
-                    false
+            } else {
+                for pattern in patterns {
+                    self.bind_pattern(pattern, Value::Nil);
                 }
-            }
-            Pattern::Nil(_) => val == Value::Nil,
-            Pattern::Bool { b: b1, .. } => {
-                if let Value::Bool(b2) = val {
-                    b1 == &b2
-                } else {
-                    false
+                false
+            }),
+            Pattern::Entity { patterns, .. } => Value::Bool(if let Value::Entity(map) = val {
+                patterns.iter().fold(true, |acc, pattern| {
+                    self.bind_field_pattern(pattern, Some(&map)).is_truthy() && acc
+                })
+            } else {
+                for pattern in patterns {
+                    self.bind_field_pattern(pattern, None);
                 }
-            }
-            Pattern::Int { int, .. } => {
-                if let Value::Num(num) = val {
-                    int == &num.to_i64()
-                } else {
-                    false
-                }
-            }
-            Pattern::String { string, .. } => {
-                if let Value::String(s) = val {
-                    *s == **string
-                } else {
-                    false
-                }
-            }
+                false
+            }),
+            Pattern::Nil(_) => Value::Bool(val == Value::Nil),
+            Pattern::Bool { b: b1, .. } => Value::Bool(if let Value::Bool(b2) = val {
+                b1 == &b2
+            } else {
+                false
+            }),
+            Pattern::Int { int, .. } => Value::Bool(if let Value::Num(num) = val {
+                int == &num.to_i64()
+            } else {
+                false
+            }),
+            Pattern::String { string, .. } => Value::Bool(if let Value::String(s) = val {
+                *s == **string
+            } else {
+                false
+            }),
         }
     }
     fn bind_field_pattern(
         &mut self,
         pattern: &FieldPattern<'i>,
         source: Option<&Entity<'i>>,
-    ) -> bool {
+    ) -> Value<'i> {
         match pattern {
             FieldPattern::SameName(ident) => {
                 let (val, found) = if let Some(val) =
@@ -233,7 +224,7 @@ impl<'i> Scope<'i> {
                     (Value::Nil, false)
                 };
                 self.bind(&ident, val);
-                found
+                Value::Bool(found)
             }
             FieldPattern::Pattern { field, pattern, .. } => {
                 let (val, found) = if let Some(val) =
@@ -243,7 +234,7 @@ impl<'i> Scope<'i> {
                 } else {
                     (Value::Nil, false)
                 };
-                self.bind_pattern(pattern, val) && found
+                Value::Bool(self.bind_pattern(pattern, val).is_truthy() && found)
             }
         }
     }
@@ -333,7 +324,7 @@ impl<'i> Runtime<'i> {
     }
     fn eval_bind_expr(&mut self, expr: &BindExpr<'i>) -> RuntimeResult<'i> {
         let val = self.eval_node(&expr.body)?;
-        Ok(Value::Bool(self.scope.bind_pattern(&expr.pattern, val)))
+        Ok(self.scope.bind_pattern(&expr.pattern, val))
     }
     fn eval_if_expr(&mut self, expr: &IfExpr<'i>) -> RuntimeResult<'i> {
         let condition = self.eval_node(&expr.condition)?;
@@ -430,6 +421,7 @@ impl<'i> Runtime<'i> {
                 params: closure.params.clone(),
                 body: closure.body.clone().into(),
             }))),
+            Term::Pattern(pattern) => Value::Pattern(pattern.clone()),
         })
     }
     fn eval_access_expr(&mut self, expr: &AccessExpr<'i>) -> RuntimeResult<'i> {
@@ -558,6 +550,15 @@ impl<'i> Runtime<'i> {
                     .span(span.clone()));
                 }
             }
+            Value::Pattern(pattern) => {
+                let first_arg = args
+                    .first()
+                    .map(|node| node.eval(self))
+                    .transpose()?
+                    .unwrap_or(Value::Nil);
+                self.scope.push(Scope::default());
+                self.scope.bind_pattern(pattern, first_arg)
+            }
             val => {
                 return Err(RuntimeErrorKind::InvalidCall {
                     called: val.type_name().into(),
@@ -666,6 +667,7 @@ impl<'i, 'r> fmt::Display for ValueFormatter<'i, 'r> {
                 write!(f, "}}")
             }
             Value::Function(function) => write!(f, "function({:p})", Rc::as_ptr(function)),
+            Value::Pattern(pattern) => write!(f, "pattern({:p})", Rc::as_ptr(pattern)),
         }
     }
 }

@@ -15,6 +15,7 @@ use crate::{
     entity::Entity,
     list::List,
     num::Num,
+    pattern::Pattern,
     runtime::{BimoFn, Runtime, Scope},
 };
 
@@ -28,6 +29,7 @@ pub enum Value<'i> {
     List(List<'i>),
     Entity(Entity<'i>),
     Function(Rc<Function<'i>>),
+    Pattern(Rc<Pattern<'i>>),
 }
 
 impl<'i> Value<'i> {
@@ -44,6 +46,7 @@ impl<'i> Value<'i> {
             Value::List(_) => "list",
             Value::Entity(_) => "entity",
             Value::Function(_) => "function",
+            Value::Pattern(_) => "pattern",
         }
     }
     pub fn discriminant_index(&self) -> u8 {
@@ -56,6 +59,7 @@ impl<'i> Value<'i> {
             Value::List(_) => 5,
             Value::Entity(_) => 6,
             Value::Function(_) => 7,
+            Value::Pattern(_) => 8,
         }
     }
 }
@@ -77,6 +81,7 @@ impl<'i> PartialEq for Value<'i> {
             (Value::List(a), Value::List(b)) => a == b,
             (Value::Function(a), Value::Function(b)) => Rc::ptr_eq(a, b),
             (Value::Entity(a), Value::Entity(b)) => a == b,
+            (Value::Pattern(a), Value::Pattern(b)) => Rc::ptr_eq(a, b),
             _ => false,
         }
     }
@@ -95,6 +100,7 @@ impl<'i> PartialOrd for Value<'i> {
             (Value::List(a), Value::List(b)) => a.partial_cmp(b),
             (Value::Function(a), Value::Function(b)) => Rc::as_ptr(a).partial_cmp(&Rc::as_ptr(b)),
             (Value::Entity(a), Value::Entity(b)) => a.partial_cmp(b),
+            (Value::Pattern(a), Value::Pattern(b)) => Rc::as_ptr(a).partial_cmp(&Rc::as_ptr(b)),
             (a, b) => a.discriminant_index().partial_cmp(&b.discriminant_index()),
         }
     }
@@ -121,6 +127,7 @@ impl<'i> Hash for Value<'i> {
             Value::List(list) => list.hash(state),
             Value::Entity(entity) => entity.hash(state),
             Value::Function(function) => Rc::as_ptr(function).hash(state),
+            Value::Pattern(pattern) => Rc::as_ptr(pattern).hash(state),
         }
     }
 }

@@ -4,6 +4,7 @@ mod entity;
 mod list;
 mod num;
 mod parse;
+mod pattern;
 mod runtime;
 #[cfg(test)]
 mod test;

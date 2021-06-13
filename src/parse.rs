@@ -9,7 +9,12 @@ use pest::{
     Parser, RuleType, Span,
 };
 
-use crate::{ast::*, entity::Key, runtime::Runtime};
+use crate::{
+    ast::*,
+    entity::Key,
+    pattern::{FieldPattern, Pattern},
+    runtime::Runtime,
+};
 
 #[derive(Debug)]
 pub enum CheckError<'i> {
@@ -611,6 +616,7 @@ impl<'i> ParseState<'i> {
                 }
                 Term::Entity { entries, default }
             }
+            Rule::pattern_literal => Term::Pattern(self.pattern(only(pair)).into()),
             rule => unreachable!("{:?}", rule),
         };
         Node::Term(term, span)
