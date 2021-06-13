@@ -7,7 +7,7 @@ use crate::{
     list::List,
     num::Num,
     runtime::RuntimeErrorKind,
-    value::{RustFunction, Value},
+    value::{static_str, RustFunction, Value},
 };
 
 #[macro_export]
@@ -175,6 +175,6 @@ functions!(
     },
     eval(code) = |rt, span| {
         let code = require_type!(code, span, Value::String(s) => s);
-        rt.eval(&*code)
+        rt.eval(static_str(&code))
     }
 );

@@ -349,7 +349,7 @@ impl<'i> Runtime<'i> {
             Term::Bool(b) => Value::Bool(*b),
             Term::Int(i) => Value::Num((*i).into()),
             Term::Real(r) => Value::Num((*r).into()),
-            Term::String(s) => Value::String(*s),
+            Term::String(s) => Value::String(s.clone()),
             Term::List(nodes) => Value::List(
                 nodes
                     .iter()

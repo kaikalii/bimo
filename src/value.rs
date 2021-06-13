@@ -24,7 +24,7 @@ pub enum Value<'i> {
     Bool(bool),
     Num(Num),
     Tag(Ident<'i>),
-    String(&'i str),
+    String(Rc<str>),
     List(List<'i>),
     Entity(Entity<'i>),
     Function(Rc<Function<'i>>),
@@ -185,7 +185,13 @@ impl<'i> From<Num> for Value<'i> {
 
 impl<'i> From<&'i str> for Value<'i> {
     fn from(s: &'i str) -> Self {
-        Value::String(s)
+        Value::String(s.into())
+    }
+}
+
+impl<'i> From<String> for Value<'i> {
+    fn from(s: String) -> Self {
+        Value::String(s.into())
     }
 }
 
