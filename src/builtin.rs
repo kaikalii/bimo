@@ -173,4 +173,8 @@ functions!(
         }
         Ok(Value::Nil)
     },
+    eval(code) = |rt, span| {
+        let code = require_type!(code, span, Value::String(s) => s);
+        rt.eval(&*code)
+    }
 );

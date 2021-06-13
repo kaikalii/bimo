@@ -1,10 +1,14 @@
 use std::{
     cell::RefCell,
     cmp::Ordering,
+    collections::HashMap,
     fmt,
     hash::{Hash, Hasher},
     rc::Rc,
+    sync::Mutex,
 };
+
+use once_cell::sync::Lazy;
 
 use crate::{
     ast::{Ident, Node, Params},
@@ -20,7 +24,7 @@ pub enum Value<'i> {
     Bool(bool),
     Num(Num),
     Tag(Ident<'i>),
-    String(Rc<str>),
+    String(&'i str),
     List(List<'i>),
     Entity(Entity<'i>),
     Function(Rc<Function<'i>>),
@@ -179,15 +183,9 @@ impl<'i> From<Num> for Value<'i> {
     }
 }
 
-impl<'i> From<String> for Value<'i> {
-    fn from(s: String) -> Self {
-        Value::String(s.into())
-    }
-}
-
-impl<'a, 'i> From<&'a str> for Value<'i> {
-    fn from(s: &'a str) -> Self {
-        Value::String(s.into())
+impl<'i> From<&'i str> for Value<'i> {
+    fn from(s: &'i str) -> Self {
+        Value::String(s)
     }
 }
 
@@ -207,4 +205,15 @@ impl<'i> From<Entity<'i>> for Value<'i> {
     fn from(e: Entity<'i>) -> Self {
         Value::Entity(e)
     }
+}
+
+static STRINGS: Lazy<Mutex<HashMap<String, &'static str>>> =
+    Lazy::new(|| Mutex::new(HashMap::new()));
+
+pub(crate) fn static_str(s: &str) -> &'static str {
+    *STRINGS
+        .lock()
+        .unwrap()
+        .entry(s.into())
+        .or_insert_with(|| Box::leak(Box::new(s.to_owned())))
 }

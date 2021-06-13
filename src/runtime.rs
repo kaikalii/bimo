@@ -1,6 +1,6 @@
 use std::{
-    cell::RefCell, collections::HashMap, error::Error, fmt, intrinsics::transmute, iter::repeat,
-    mem::swap, rc::Rc,
+    cell::RefCell, collections::HashMap, error::Error, fmt, iter::repeat, mem::swap,
+    mem::transmute, rc::Rc,
 };
 
 use itertools::Itertools;
@@ -130,15 +130,8 @@ impl<'i> From<Vec<CheckError<'i>>> for RuntimeError<'i> {
     }
 }
 
-#[derive(Clone)]
 pub struct Runtime<'i> {
     pub(crate) scope: Scope<'i>,
-}
-
-impl<'i> Default for Runtime<'i> {
-    fn default() -> Self {
-        Runtime::new()
-    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -162,6 +155,12 @@ impl<'i> Scope<'i> {
             .get(name)
             .cloned()
             .or_else(|| self.parent.as_ref().and_then(|parent| parent.val(name)))
+    }
+}
+
+impl<'i> Default for Runtime<'i> {
+    fn default() -> Self {
+        Runtime::new()
     }
 }
 
@@ -200,7 +199,7 @@ impl<'i> Runtime<'i> {
     }
     pub fn eval<'r>(&'r mut self, input: &'i str) -> RuntimeResult<'i> {
         let items = parse(self, input)?;
-        Ok(self.eval_items(&items)?)
+        self.eval_items(&items)
     }
     pub fn check<'r>(&'r mut self, input: &'i str) -> Result<(), Vec<CheckError<'i>>> {
         parse(self, input)?;
@@ -350,7 +349,7 @@ impl<'i> Runtime<'i> {
             Term::Bool(b) => Value::Bool(*b),
             Term::Int(i) => Value::Num((*i).into()),
             Term::Real(r) => Value::Num((*r).into()),
-            Term::String(s) => Value::String(s.clone()),
+            Term::String(s) => Value::String(*s),
             Term::List(nodes) => Value::List(
                 nodes
                     .iter()

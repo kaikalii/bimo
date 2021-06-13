@@ -9,7 +9,7 @@ use pest::{
     Parser, RuleType, Span,
 };
 
-use crate::{ast::*, entity::Key, runtime::Runtime};
+use crate::{ast::*, entity::Key, runtime::Runtime, value::static_str};
 
 #[derive(Debug)]
 pub enum CheckError<'i> {
@@ -557,7 +557,7 @@ impl<'i> ParseState<'i> {
             }
             Rule::string => {
                 let string = self.string_literal(pair);
-                Term::String(string.into())
+                Term::String(static_str(&string))
             }
             Rule::list_literal => {
                 Term::List(pair.into_inner().map(|pair| self.expr(pair)).collect())
