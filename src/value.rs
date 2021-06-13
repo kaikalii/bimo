@@ -1,7 +1,6 @@
 #![allow(dead_code)]
 
 use std::{
-    borrow::Borrow,
     cell::RefCell,
     cmp::Ordering,
     collections::{
@@ -94,12 +93,8 @@ impl<'i> Entity<'i> {
             map: Rc::new(HashMap::with_capacity_and_hasher(capacity, HashState)),
         }
     }
-    pub fn get<Q>(&self, key: &Q) -> &Value<'i>
-    where
-        Q: Eq + Hash + ?Sized,
-        Key<'i>: Borrow<Q>,
-    {
-        if let Some(val) = self.map.get(key) {
+    pub fn get(&self, key: impl AsRef<Key<'i>>) -> &Value<'i> {
+        if let Some(val) = self.map.get(key.as_ref()) {
             val
         } else {
             &Value::Nil
@@ -232,23 +227,9 @@ impl<'a, 'i> IntoIterator for &'a Entity<'i> {
     }
 }
 
-impl<'i> Borrow<str> for Key<'i> {
-    fn borrow(&self) -> &str {
-        if let Key::Field(ident) = self {
-            ident.name
-        } else {
-            ""
-        }
-    }
-}
-
-impl<'i> Borrow<Value<'i>> for Key<'i> {
-    fn borrow(&self) -> &Value<'i> {
-        if let Key::Value(val) = self {
-            val
-        } else {
-            &Value::Nil
-        }
+impl<'i> AsRef<Key<'i>> for Key<'i> {
+    fn as_ref(&self) -> &Key<'i> {
+        self
     }
 }
 

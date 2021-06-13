@@ -290,7 +290,7 @@ impl<'i> Runtime<'i> {
     fn bind_field_pattern(&mut self, pattern: &FieldPattern<'i>, source: Option<&Entity<'i>>) {
         match pattern {
             FieldPattern::SameName(ident) => {
-                let val = if let Some(val) = source.map(|map| map.get(ident.name)) {
+                let val = if let Some(val) = source.map(|map| map.get(&Key::Field(ident.clone()))) {
                     val.clone()
                 } else {
                     Value::Nil
@@ -298,7 +298,7 @@ impl<'i> Runtime<'i> {
                 self.bind(&ident, val);
             }
             FieldPattern::Pattern { field, pattern, .. } => {
-                let val = if let Some(val) = source.map(|map| map.get(field.name)) {
+                let val = if let Some(val) = source.map(|map| map.get(&Key::Field(field.clone()))) {
                     val.clone()
                 } else {
                     Value::Nil
@@ -494,7 +494,7 @@ impl<'i> Runtime<'i> {
                     .map(|node| self.eval_node(node))
                     .transpose()?
                     .unwrap_or(Value::Nil);
-                map.get(&first_arg).clone()
+                map.get(&Key::Value(first_arg)).clone()
             }
             Value::List(list) => {
                 let first_arg = expr
