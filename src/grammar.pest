@@ -10,9 +10,12 @@ int = @{ ("+" | "-")? ~ ASCII_DIGIT+ }
 real = @{ int ~ ("." ~ ASCII_DIGIT+) ~ (^"e" ~ int)? }
 
 // String literals
-string = { (quoted_string ~ NEWLINE?)+ }
-quoted_string = ${ "\"" ~ (string_text | "\\" ~ (predefined | byte | unicode))* ~ "\"" }
-string_text = @{ (!("\\" | "\"") ~ ANY)+ }
+string = { ((quoted_string | format_string) ~ NEWLINE?)+ }
+format_string = ${ "$\"" ~ ( string_part | format_arg )* ~ "\"" }
+quoted_string = ${ "\"" ~ string_part* ~ "\"" }
+format_arg = !{ "{" ~ expr ~ "}" }
+string_part = _{ string_text | "\\" ~ (predefined | byte | unicode) }
+string_text = @{ (!("\\" | "\"" | "{" | "}" ) ~ ANY)+ }
 hex = _{ '0'..'9' | 'i'..'f' | 'i'..'F' }
 unicode_hex = @{ hex{1, 6} }
 predefined = { "n" | "r" | "t" | "\\" | "0" | "\"" | "'" }
@@ -43,7 +46,7 @@ op_neg = { "-" }
 paren_expr = { "(" ~ NEWLINE* ~ items ~ ")" }
 param = { pattern }
 closure_params = { (pattern | "|" ~ (pattern ~ ","?)*) ~ "|" }
-closure = { closure_params ~ expr }
+closure = { closure_params ~ NEWLINE? ~ expr }
 tag_literal = ${ "#" ~ ident }
 term = { real | int | closure | ident | tag_literal | string | paren_expr | list_literal | entity_literal }
 
@@ -72,7 +75,7 @@ entity_pattern = { "{" ~ (field_pattern ~ ","?)* ~ "}" }
 pattern = { ident | int | string | list_pattern | entity_pattern }
 
 // Items
-function_def = { ident ~ "(" ~ (param ~ ","?)* ~ ")" ~ "=" ~ expr }
+function_def = { ident ~ "(" ~ (param ~ ","?)* ~ ")" ~ "=" ~ NEWLINE? ~ expr }
 item = { function_def | expr }
 items = { (item ~ NEWLINE*)* }
 file = { SOI ~ NEWLINE* ~ items ~ EOI }

@@ -115,7 +115,7 @@ pub enum Pattern<'i> {
         span: Span<'i>,
     },
     String {
-        string: String,
+        string: Rc<str>,
         span: Span<'i>,
     },
 }
@@ -294,13 +294,19 @@ pub enum Term<'i> {
     Real(f64),
     Ident(Ident<'i>),
     Tag(Ident<'i>),
-    String(Rc<str>),
+    String(Vec<StringPart<'i>>),
     List(Vec<Node<'i>>),
     Entity {
         entries: Vec<Entry<'i>>,
         default: Option<Box<Node<'i>>>,
     },
     Closure(Box<Closure<'i>>),
+}
+
+#[derive(Debug, Clone)]
+pub enum StringPart<'i> {
+    Raw(Rc<str>),
+    Format(Node<'i>),
 }
 
 #[derive(Debug, Clone)]

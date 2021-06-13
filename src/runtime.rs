@@ -349,7 +349,20 @@ impl<'i> Runtime<'i> {
             Term::Bool(b) => Value::Bool(*b),
             Term::Int(i) => Value::Num((*i).into()),
             Term::Real(r) => Value::Num((*r).into()),
-            Term::String(s) => Value::String(s.clone()),
+            Term::String(parts) => {
+                let mut s = String::new();
+                for part in parts {
+                    match part {
+                        StringPart::Raw(part) => s.push_str(part),
+                        StringPart::Format(node) => {
+                            let val = self.eval_node(node)?;
+                            let formatted = self.format(&val).to_string();
+                            s.push_str(&formatted)
+                        }
+                    }
+                }
+                Value::String(s.into())
+            }
             Term::List(nodes) => Value::List(
                 nodes
                     .iter()

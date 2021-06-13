@@ -20,6 +20,7 @@ pub enum CheckError<'i> {
     FunctionNamedUnderscore(Span<'i>),
     ForbiddenRedefinition(Ident<'i>),
     LastItemNotExpression(Span<'i>),
+    InvalidStringPattern(Span<'i>),
 }
 
 impl<'i> fmt::Display for CheckError<'i> {
@@ -48,6 +49,9 @@ impl<'i> fmt::Display for CheckError<'i> {
                 span.clone(),
                 f,
             ),
+            CheckError::InvalidStringPattern(span) => {
+                format_span("Invalid string pattern", span.clone(), f)
+            }
         }
     }
 }
@@ -292,7 +296,7 @@ impl<'i> ParseState<'i> {
             Rule::string => {
                 let span = pair.as_span();
                 Pattern::String {
-                    string: self.string(pair),
+                    string: self.raw_string(pair).into(),
                     span,
                 }
             }
@@ -556,8 +560,8 @@ impl<'i> ParseState<'i> {
                 Term::Expr(items)
             }
             Rule::string => {
-                let string = self.string(pair);
-                Term::String(string.into())
+                let parts = self.string(pair);
+                Term::String(parts)
             }
             Rule::list_literal => {
                 Term::List(pair.into_inner().map(|pair| self.expr(pair)).collect())
@@ -650,14 +654,31 @@ impl<'i> ParseState<'i> {
             rule => unreachable!("{:?}", rule),
         }
     }
-    fn string(&mut self, pair: Pair<'i, Rule>) -> String {
-        let mut s = String::new();
+    fn string(&mut self, pair: Pair<'i, Rule>) -> Vec<StringPart<'i>> {
+        let mut parts = Vec::new();
         for pair in pair.into_inner() {
-            s.push_str(&self.quoted_string(pair));
+            parts.extend(self.quoted_string(pair));
+        }
+        parts
+    }
+    fn raw_string(&mut self, pair: Pair<'i, Rule>) -> String {
+        let mut s = String::new();
+        let span = pair.as_span();
+        'pair_loop: for pair in pair.into_inner() {
+            for part in self.quoted_string(pair) {
+                match part {
+                    StringPart::Raw(part) => s.push_str(&*part),
+                    StringPart::Format(_) => {
+                        self.errors.push(CheckError::InvalidStringPattern(span));
+                        break 'pair_loop;
+                    }
+                }
+            }
         }
         s
     }
-    fn quoted_string(&mut self, pair: Pair<'i, Rule>) -> String {
+    fn quoted_string(&mut self, pair: Pair<'i, Rule>) -> Vec<StringPart<'i>> {
+        let mut parts = Vec::new();
         let mut s = String::new();
         for pair in pair.into_inner() {
             match pair.as_rule() {
@@ -692,9 +713,19 @@ impl<'i> ParseState<'i> {
                         std::char::from_u32(u).unwrap_or_else(|| panic!("invalid unicode {}", u)),
                     );
                 }
+                Rule::format_arg => {
+                    if !s.is_empty() {
+                        parts.push(StringPart::Raw(s.into()));
+                        s = String::new();
+                    }
+                    parts.push(StringPart::Format(self.expr(only(pair))));
+                }
                 rule => unreachable!("{:?}", rule),
             }
         }
-        s
+        if !s.is_empty() {
+            parts.push(StringPart::Raw(s.into()))
+        }
+        parts
     }
 }
