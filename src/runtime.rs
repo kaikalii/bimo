@@ -111,7 +111,7 @@ impl<'i> fmt::Display for RuntimeError<'i> {
 
 impl<'i> Error for RuntimeError<'i> {}
 
-pub type RuntimeResult<'i> = Result<Value<'i>, RuntimeError<'i>>;
+pub type RuntimeResult<'i, T = Value<'i>> = Result<T, RuntimeError<'i>>;
 
 #[derive(Debug)]
 pub enum EvalError<'i> {
@@ -486,16 +486,18 @@ impl<'i> Runtime<'i> {
             },
         })
     }
-    fn eval_call(&mut self, expr: &CallExpr<'i>) -> RuntimeResult<'i> {
-        let caller = self.eval_node(&expr.caller)?;
+    pub fn call<A>(&mut self, caller: &Value<'i>, args: &[A], span: &Span<'i>) -> RuntimeResult<'i>
+    where
+        A: Arg<'i>,
+    {
         Ok(match caller {
-            Value::Function(function) => match &*function {
+            Value::Function(function) => match &**function {
                 Function::Bimo(function) => {
                     let mut call_scope = function.scope.clone();
                     call_scope.push(Scope::default());
                     for (i, param) in function.params.iter().enumerate() {
-                        let val = if let Some(node) = expr.args.get(i) {
-                            self.eval_node(node)?
+                        let val = if let Some(arg) = args.get(i) {
+                            arg.eval(self)?
                         } else {
                             Value::Nil
                         };
@@ -509,52 +511,46 @@ impl<'i> Runtime<'i> {
                 Function::Rust(function) => {
                     let call_scope = Scope::default();
                     for (i, param) in function.params.iter().enumerate() {
-                        let val = if let Some(node) = expr.args.get(i) {
-                            self.eval_node(node)?
+                        let val = if let Some(arg) = args.get(i) {
+                            arg.eval(self)?
                         } else {
                             Value::Nil
                         };
                         call_scope.values.borrow_mut().insert(param, val);
                     }
                     self.scope.push(call_scope);
-                    let res = (function.f)(self, &expr.span);
+                    let res = (function.f)(self, span);
                     self.scope.pop();
                     res?
                 }
             },
             Value::Entity(map) => {
-                let first_arg = expr
-                    .args
+                let first_arg = args
                     .first()
-                    .map(|node| self.eval_node(node))
+                    .map(|node| node.eval(self))
                     .transpose()?
                     .unwrap_or(Value::Nil);
                 map.get(&Key::Value(first_arg)).clone()
             }
             Value::List(list) => {
-                let first_arg = expr
-                    .args
+                let first_arg = args
                     .first()
-                    .map(|node| self.eval_node(node))
+                    .map(|node| node.eval(self))
                     .transpose()?
                     .unwrap_or(Value::Nil);
                 if let Value::Num(num) = first_arg {
                     let index = num.to_i64();
                     if index >= 0 {
                         let index = index as usize;
-                        if index < list.len().unwrap_or(usize::MAX) {
-                            list[index].clone()
+                        if index < list.len() {
+                            list.get(index).unwrap().clone()
                         } else {
                             Value::Nil
                         }
                     } else {
                         let rev_index = (-index) as usize;
-                        if let Some(len) = list.len() {
-                            if rev_index <= len {
-                                list[len - rev_index].clone()
-                            } else {
-                                Value::Nil
-                            }
+                        if rev_index <= list.len() {
+                            list.get(list.len() - rev_index).unwrap().clone()
                         } else {
                             Value::Nil
                         }
@@ -563,16 +559,36 @@ impl<'i> Runtime<'i> {
                     return Err(RuntimeErrorKind::InvalidListIndex {
                         index: first_arg.type_name().into(),
                     }
-                    .span(expr.caller.span().clone()));
+                    .span(span.clone()));
                 }
             }
             val => {
                 return Err(RuntimeErrorKind::InvalidCall {
                     called: val.type_name().into(),
                 }
-                .span(expr.caller.span().clone()))
+                .span(span.clone()))
             }
         })
+    }
+    fn eval_call(&mut self, expr: &CallExpr<'i>) -> RuntimeResult<'i> {
+        let caller = self.eval_node(&expr.caller)?;
+        self.call(&caller, &expr.args, &expr.span)
+    }
+}
+
+pub trait Arg<'i> {
+    fn eval(&self, runtime: &mut Runtime<'i>) -> RuntimeResult<'i>;
+}
+
+impl<'i> Arg<'i> for Value<'i> {
+    fn eval(&self, _: &mut Runtime<'i>) -> RuntimeResult<'i> {
+        Ok(self.clone())
+    }
+}
+
+impl<'i> Arg<'i> for Node<'i> {
+    fn eval(&self, runtime: &mut Runtime<'i>) -> RuntimeResult<'i> {
+        runtime.eval_node(self)
     }
 }
 
@@ -622,16 +638,7 @@ impl<'i, 'r> fmt::Display for ValueFormatter<'i, 'r> {
             Value::Tag(ident) => {
                 write!(f, "#{}", ident.name)
             }
-            Value::List(list) => {
-                write!(f, "[")?;
-                for (i, val) in list.iter().enumerate() {
-                    if i > 0 {
-                        write!(f, ", ")?;
-                    }
-                    self.runtime.format(val).fmt(f)?;
-                }
-                write!(f, "]")
-            }
+            Value::List(list) => f.debug_list().entries(list).finish(),
             Value::Entity(entity) => {
                 write!(f, "{{")?;
                 for (i, (key, val)) in entity.iter().sorted_by_key(|(key, _)| *key).enumerate() {
