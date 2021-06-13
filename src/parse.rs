@@ -100,7 +100,7 @@ pub(crate) fn parse<'i>(
     }
 }
 
-#[derive(Default)]
+#[derive(Debug, Default)]
 struct ParenScope<'i> {
     bindings: HashSet<&'i str>,
 }
@@ -139,18 +139,20 @@ impl<'i> ParseState<'i> {
     fn function_scope(&mut self) -> &mut FunctionScope<'i> {
         self.scopes.last_mut().unwrap()
     }
-    fn scope(&mut self) -> &mut ParenScope<'i> {
-        self.function_scope().scopes.last_mut().unwrap()
-    }
     fn span(&self, start: usize, end: usize) -> Span<'i> {
         Span::new(self.input, start, end).unwrap()
     }
-    fn depth(&self) -> u8 {
-        self.scopes.len() as u8
+    fn depth(&self) -> u16 {
+        self.scopes.iter().map(|fs| fs.scopes.len() as u16).sum()
     }
     fn bind(&mut self, name: &'i str) {
         if name != "_" {
-            self.scope().bindings.insert(name);
+            self.function_scope()
+                .scopes
+                .last_mut()
+                .unwrap()
+                .bindings
+                .insert(name);
         }
     }
     fn bind_pattern(&mut self, pattern: &Pattern<'i>) {
@@ -247,18 +249,6 @@ impl<'i> ParseState<'i> {
             body: body.unwrap(),
         })
     }
-    fn expr_bind(&mut self, pair: Pair<'i, Rule>) -> Node<'i> {
-        let span = pair.as_span();
-        let mut pairs = pair.into_inner();
-        let pattern = self.pattern(pairs.next().unwrap());
-        let body = self.expr(pairs.next().unwrap());
-        self.bind_pattern(&pattern);
-        Node::Bind(BindExpr {
-            pattern,
-            body: body.into(),
-            span,
-        })
-    }
     fn pattern(&mut self, pair: Pair<'i, Rule>) -> Pattern<'i> {
         let pair = only(pair);
         match pair.as_rule() {
@@ -301,7 +291,6 @@ impl<'i> ParseState<'i> {
         match pair.as_rule() {
             Rule::expr_or => self.expr_or(pair),
             Rule::expr_if => self.expr_if(pair),
-            Rule::expr_bind => self.expr_bind(pair),
             rule => unreachable!("{:?}", rule),
         }
     }
@@ -320,7 +309,9 @@ impl<'i> ParseState<'i> {
         let left = pairs.next().unwrap();
         let mut span = left.as_span();
         let mut left = self.expr_and(left);
+        let start_depth = self.depth();
         for (op, right) in pairs.tuples() {
+            self.push_paren_scope();
             let op_span = op.as_span();
             let op = match op.as_str() {
                 "or" => BinOp::Or,
@@ -330,24 +321,51 @@ impl<'i> ParseState<'i> {
             let right = self.expr_and(right);
             left = Node::BinExpr(BinExpr::new(left, right, op, span.clone(), op_span));
         }
+        while self.depth() > start_depth {
+            self.pop_paren_scope();
+        }
         left
     }
     fn expr_and(&mut self, pair: Pair<'i, Rule>) -> Node<'i> {
         let mut pairs = pair.into_inner();
         let left = pairs.next().unwrap();
         let mut span = left.as_span();
-        let mut left = self.expr_cmp(left);
+        let mut left = self.expr_bind(left);
+        let start_depth = self.depth();
         for (op, right) in pairs.tuples() {
+            self.push_paren_scope();
             let op_span = op.as_span();
             let op = match op.as_str() {
                 "and" => BinOp::And,
                 rule => unreachable!("{:?}", rule),
             };
             span = self.span(span.start(), right.as_span().end());
-            let right = self.expr_cmp(right);
+            let right = self.expr_bind(right);
             left = Node::BinExpr(BinExpr::new(left, right, op, span.clone(), op_span));
         }
+        while self.depth() > start_depth {
+            self.pop_paren_scope();
+        }
         left
+    }
+    fn expr_bind(&mut self, pair: Pair<'i, Rule>) -> Node<'i> {
+        let span = pair.as_span();
+        let mut pairs = pair.into_inner();
+        let first = pairs.next().unwrap();
+        match first.as_rule() {
+            Rule::pattern => {
+                let pattern = self.pattern(first);
+                let body = self.expr_access(pairs.next().unwrap());
+                self.bind_pattern(&pattern);
+                Node::Bind(BindExpr {
+                    pattern,
+                    body: body.into(),
+                    span,
+                })
+            }
+            Rule::expr_cmp => self.expr_cmp(first),
+            rule => unreachable!("{:?}", rule),
+        }
     }
     fn expr_cmp(&mut self, pair: Pair<'i, Rule>) -> Node<'i> {
         let mut pairs = pair.into_inner();
@@ -546,7 +564,7 @@ impl<'i> ParseState<'i> {
                                     let value = if let Some(second) = pairs.next() {
                                         self.expr(second)
                                     } else {
-                                        Node::Term(self.ident_term(first), ident.span.clone())
+                                        self.term(first)
                                     };
                                     entries.push(Entry::Field(ident, value));
                                 }
