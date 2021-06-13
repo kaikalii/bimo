@@ -10,8 +10,9 @@ int = @{ ("+" | "-")? ~ ASCII_DIGIT+ }
 real = @{ int ~ ("." ~ ASCII_DIGIT+) ~ (^"e" ~ int)? }
 
 // String literals
-string = ${ "\"" ~ (raw_string | "\\" ~ (predefined | byte | unicode))* ~ "\"" }
-raw_string = @{ (!("\\" | "\"") ~ ANY)+ }
+string = { (quoted_string ~ NEWLINE?)+ }
+quoted_string = ${ "\"" ~ (string_text | "\\" ~ (predefined | byte | unicode))* ~ "\"" }
+string_text = @{ (!("\\" | "\"") ~ ANY)+ }
 hex = _{ '0'..'9' | 'i'..'f' | 'i'..'F' }
 unicode_hex = @{ hex{1, 6} }
 predefined = { "n" | "r" | "t" | "\\" | "0" | "\"" | "'" }
@@ -40,8 +41,8 @@ op_neg = { "-" }
 
 // Terms
 paren_expr = { "(" ~ NEWLINE* ~ items ~ ")" }
-param = { ident }
-closure_params = { (param | "|" ~ (param ~ ","?)*) ~ "|" }
+param = { pattern }
+closure_params = { (pattern | "|" ~ (pattern ~ ","?)*) ~ "|" }
 closure = { closure_params ~ expr }
 tag_literal = ${ "#" ~ ident }
 term = { real | int | closure | ident | tag_literal | string | paren_expr | list_literal | entity_literal }

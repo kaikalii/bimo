@@ -292,7 +292,7 @@ impl<'i> ParseState<'i> {
             Rule::string => {
                 let span = pair.as_span();
                 Pattern::String {
-                    string: self.string_literal(pair),
+                    string: self.string(pair),
                     span,
                 }
             }
@@ -556,7 +556,7 @@ impl<'i> ParseState<'i> {
                 Term::Expr(items)
             }
             Rule::string => {
-                let string = self.string_literal(pair);
+                let string = self.string(pair);
                 Term::String(string.into())
             }
             Rule::list_literal => {
@@ -650,11 +650,18 @@ impl<'i> ParseState<'i> {
             rule => unreachable!("{:?}", rule),
         }
     }
-    fn string_literal(&mut self, pair: Pair<'i, Rule>) -> String {
+    fn string(&mut self, pair: Pair<'i, Rule>) -> String {
+        let mut s = String::new();
+        for pair in pair.into_inner() {
+            s.push_str(&self.quoted_string(pair));
+        }
+        s
+    }
+    fn quoted_string(&mut self, pair: Pair<'i, Rule>) -> String {
         let mut s = String::new();
         for pair in pair.into_inner() {
             match pair.as_rule() {
-                Rule::raw_string => s.push_str(pair.as_str()),
+                Rule::string_text => s.push_str(pair.as_str()),
                 Rule::predefined => s.push(match pair.as_str() {
                     "0" => '\0',
                     "r" => '\r',
