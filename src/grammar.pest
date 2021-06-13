@@ -61,8 +61,8 @@ expr_if = { "if" ~ expr ~ "then"? ~ NEWLINE? ~ expr ~ NEWLINE? ~ "else" ~ NEWLIN
 expr = { expr_if | expr_or }
 
 // Patterns
-list_pattern = { "[" ~ (ident ~ ","?)* ~ "]" }
-field_pattern = { ident ~ (":" ~ ident)? }
+list_pattern = { "[" ~ (pattern ~ ","?)* ~ "]" }
+field_pattern = { ident ~ (":" ~ pattern)? }
 entity_pattern = { "{" ~ (field_pattern ~ ","?)* ~ "}" }
 pattern = { ident | list_pattern | entity_pattern }
 
