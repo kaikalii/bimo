@@ -18,6 +18,15 @@ pub struct Ident<'i> {
 }
 
 impl<'i> Ident<'i> {
+    pub fn new(name: &'i str, span: Span<'i>) -> Self {
+        Ident { name, span }
+    }
+    pub fn unspanned(name: &'i str) -> Self {
+        Ident {
+            name,
+            span: Span::new("", 0, 0).unwrap(),
+        }
+    }
     pub fn is_underscore(&self) -> bool {
         self.name == "_"
     }
@@ -80,11 +89,7 @@ impl<'i> Item<'i> {
 
 pub type Items<'i> = Vec<Item<'i>>;
 
-#[derive(Debug, Clone)]
-pub struct Param<'i> {
-    pub ident: Ident<'i>,
-}
-
+pub type Param<'i> = Pattern<'i>;
 pub type Params<'i> = Vec<Param<'i>>;
 
 #[derive(Debug, Clone)]

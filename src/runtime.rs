@@ -156,82 +156,9 @@ impl<'i> Scope<'i> {
             .cloned()
             .or_else(|| self.parent.as_ref().and_then(|parent| parent.val(name)))
     }
-}
-
-impl<'i> Default for Runtime<'i> {
-    fn default() -> Self {
-        Runtime::new()
-    }
-}
-
-impl<'i> Runtime<'i> {
-    pub fn new() -> Self {
-        let base_scope = Scope::default();
-        Runtime {
-            scope: Scope {
-                parent: None,
-                values: Rc::new(RefCell::new(
-                    FUNCTIONS
-                        .iter()
-                        .cloned()
-                        .map(|(name, rf)| {
-                            (name, unsafe {
-                                transmute::<_, Value<'i>>(Value::Function(
-                                    Function::Rust(rf, base_scope.clone()).into(),
-                                ))
-                            })
-                        })
-                        .collect(),
-                )),
-            },
-        }
-    }
-    pub fn val(&self, name: &str) -> Value<'i> {
-        self.scope
-            .val(name)
-            .unwrap_or_else(|| panic!("Unknown value: {}", name))
-    }
-    pub fn format<'r>(&'r self, value: &'r Value<'i>) -> ValueFormatter<'i, 'r> {
-        ValueFormatter {
-            value,
-            runtime: self,
-        }
-    }
-    pub fn eval<'r>(&'r mut self, input: &'i str) -> RuntimeResult<'i> {
-        let items = parse(self, input)?;
-        self.eval_items(&items)
-    }
-    pub fn check<'r>(&'r mut self, input: &'i str) -> Result<(), Vec<CheckError<'i>>> {
-        parse(self, input)?;
-        Ok(())
-    }
-    fn eval_items(&mut self, items: &[Item<'i>]) -> RuntimeResult<'i> {
-        let mut res = Value::Nil;
-        for item in items {
-            res = self.eval_item(item)?;
-        }
-        Ok(res)
-    }
-    fn eval_item(&mut self, item: &Item<'i>) -> RuntimeResult<'i> {
-        match item {
-            Item::Node(node) => self.eval_node(node),
-            Item::FunctionDef(def) => {
-                let val = Value::Function(
-                    Function::Bimo(BimoFunction {
-                        scope: self.scope.clone(),
-                        params: def.params.clone(),
-                        body: def.body.clone().into(),
-                    })
-                    .into(),
-                );
-                self.bind(&def.ident, val);
-                Ok(Value::Nil)
-            }
-        }
-    }
     fn bind(&self, ident: &Ident<'i>, val: Value<'i>) {
         if !ident.is_underscore() {
-            self.scope.values.borrow_mut().insert(ident.name, val);
+            self.values.borrow_mut().insert(ident.name, val);
         }
     }
     fn bind_pattern(&mut self, pattern: &Pattern<'i>, val: Value<'i>) -> bool {
@@ -320,6 +247,79 @@ impl<'i> Runtime<'i> {
             }
         }
     }
+}
+
+impl<'i> Default for Runtime<'i> {
+    fn default() -> Self {
+        Runtime::new()
+    }
+}
+
+impl<'i> Runtime<'i> {
+    pub fn new() -> Self {
+        let base_scope = Scope::default();
+        Runtime {
+            scope: Scope {
+                parent: None,
+                values: Rc::new(RefCell::new(
+                    FUNCTIONS
+                        .iter()
+                        .cloned()
+                        .map(|(name, rf)| {
+                            (name, unsafe {
+                                transmute::<_, Value<'i>>(Value::Function(
+                                    Function::Rust(rf, base_scope.clone()).into(),
+                                ))
+                            })
+                        })
+                        .collect(),
+                )),
+            },
+        }
+    }
+    pub fn val(&self, name: &str) -> Value<'i> {
+        self.scope
+            .val(name)
+            .unwrap_or_else(|| panic!("Unknown value: {}", name))
+    }
+    pub fn format<'r>(&'r self, value: &'r Value<'i>) -> ValueFormatter<'i, 'r> {
+        ValueFormatter {
+            value,
+            runtime: self,
+        }
+    }
+    pub fn eval<'r>(&'r mut self, input: &'i str) -> RuntimeResult<'i> {
+        let items = parse(self, input)?;
+        self.eval_items(&items)
+    }
+    pub fn check<'r>(&'r mut self, input: &'i str) -> Result<(), Vec<CheckError<'i>>> {
+        parse(self, input)?;
+        Ok(())
+    }
+    fn eval_items(&mut self, items: &[Item<'i>]) -> RuntimeResult<'i> {
+        let mut res = Value::Nil;
+        for item in items {
+            res = self.eval_item(item)?;
+        }
+        Ok(res)
+    }
+    fn eval_item(&mut self, item: &Item<'i>) -> RuntimeResult<'i> {
+        match item {
+            Item::Node(node) => self.eval_node(node),
+            Item::FunctionDef(def) => {
+                let val = Value::Function(
+                    Function::Bimo(BimoFunction {
+                        scope: self.scope.clone(),
+                        params: def.params.clone(),
+                        body: def.body.clone().into(),
+                    })
+                    .into(),
+                );
+                self.scope.bind(&def.ident, val);
+                Ok(Value::Nil)
+            }
+        }
+    }
     fn eval_node(&mut self, node: &Node<'i>) -> RuntimeResult<'i> {
         match node {
             Node::Term(term, _) => self.eval_term(term),
@@ -333,7 +333,7 @@ impl<'i> Runtime<'i> {
     }
     fn eval_bind_expr(&mut self, expr: &BindExpr<'i>) -> RuntimeResult<'i> {
         let val = self.eval_node(&expr.body)?;
-        Ok(Value::Bool(self.bind_pattern(&expr.pattern, val)))
+        Ok(Value::Bool(self.scope.bind_pattern(&expr.pattern, val)))
     }
     fn eval_if_expr(&mut self, expr: &IfExpr<'i>) -> RuntimeResult<'i> {
         let condition = self.eval_node(&expr.condition)?;
@@ -491,13 +491,13 @@ impl<'i> Runtime<'i> {
                 Function::Bimo(function) => {
                     let mut call_scope = function.scope.clone();
                     call_scope.push(Scope::default());
-                    for (i, param) in function.params.iter().enumerate() {
+                    for (i, pattern) in function.params.iter().enumerate() {
                         let val = if let Some(arg) = args.get(i) {
                             arg.eval(self)?
                         } else {
                             Value::Nil
                         };
-                        call_scope.values.borrow_mut().insert(param.ident.name, val);
+                        call_scope.bind_pattern(pattern, val);
                     }
                     swap(&mut self.scope, &mut call_scope);
                     let val = self.eval_node(&*function.body.borrow())?;

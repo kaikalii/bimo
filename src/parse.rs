@@ -91,7 +91,7 @@ pub(crate) fn parse<'i>(
                 errors: Vec::new(),
             };
             for (name, _) in &*crate::builtin::FUNCTIONS {
-                state.bind(name);
+                state.bind(&Ident::unspanned(*name));
             }
             let items = state.items(only(pairs.next().unwrap()));
             if state.errors.is_empty() {
@@ -149,19 +149,22 @@ impl<'i> ParseState<'i> {
     fn depth(&self) -> u16 {
         self.scopes.iter().map(|fs| fs.scopes.len() as u16).sum()
     }
-    fn bind(&mut self, name: &'i str) {
-        if name != "_" {
+    fn bind(&mut self, ident: &Ident<'i>) {
+        if FORBIDDEN_REDIFINITIONS.contains(&ident.name) {
+            self.errors
+                .push(CheckError::ForbiddenRedefinition(ident.clone()));
+        } else if ident.name != "_" {
             self.function_scope()
                 .scopes
                 .last_mut()
                 .unwrap()
                 .bindings
-                .insert(name);
+                .insert(ident.name);
         }
     }
     fn bind_pattern(&mut self, pattern: &Pattern<'i>) {
         match pattern {
-            Pattern::Single(ident) => self.bind(ident.name),
+            Pattern::Single(ident) => self.bind(ident),
             Pattern::List { patterns, .. } => {
                 for pattern in patterns {
                     self.bind_pattern(pattern);
@@ -170,7 +173,7 @@ impl<'i> ParseState<'i> {
             Pattern::Entity { patterns, .. } => {
                 for pattern in patterns {
                     match pattern {
-                        FieldPattern::SameName(ident) => self.bind(ident.name),
+                        FieldPattern::SameName(ident) => self.bind(ident),
                         FieldPattern::Pattern { pattern, .. } => self.bind_pattern(pattern),
                     }
                 }
@@ -215,18 +218,10 @@ impl<'i> ParseState<'i> {
         }
         Ident { name, span }
     }
-    fn bound_ident(&mut self, pair: Pair<'i, Rule>) -> Ident<'i> {
-        let ident = self.ident(pair);
-        if FORBIDDEN_REDIFINITIONS.contains(&ident.name) {
-            self.errors
-                .push(CheckError::ForbiddenRedefinition(ident.clone()));
-        }
-        ident
-    }
-    fn param(&mut self, pair: Pair<'i, Rule>) -> Param<'i> {
-        let mut pairs = pair.into_inner();
-        let ident = self.bound_ident(pairs.next().unwrap());
-        Param { ident }
+    fn bound_param(&mut self, pair: Pair<'i, Rule>) -> Param<'i> {
+        let pattern = self.pattern(only(pair));
+        self.bind_pattern(&pattern);
+        pattern
     }
     fn function_def(&mut self, pair: Pair<'i, Rule>) -> Item<'i> {
         let mut pairs = pair.into_inner();
@@ -235,15 +230,14 @@ impl<'i> ParseState<'i> {
             self.errors
                 .push(CheckError::FunctionNamedUnderscore(ident.span.clone()));
         }
-        self.bind(ident.name);
+        self.bind(&ident);
         self.push_function_scope();
         let mut params = Vec::new();
         let mut body = None;
         for pair in pairs {
             match pair.as_rule() {
                 Rule::param => {
-                    let param = self.param(pair);
-                    self.bind(param.ident.name);
+                    let param = self.bound_param(pair);
                     params.push(param)
                 }
                 Rule::expr => body = Some(self.expr(pair)),
@@ -571,10 +565,10 @@ impl<'i> ParseState<'i> {
                 let span = pair.as_span();
                 let mut pairs = pair.into_inner();
                 let params_pairs = pairs.next().unwrap().into_inner();
-                let params: Vec<Param> = params_pairs.map(|pair| self.param(pair)).collect();
+                let params: Vec<Param> = params_pairs.map(|pair| self.bound_param(pair)).collect();
                 self.push_function_scope();
                 for param in &params {
-                    self.bind(param.ident.name);
+                    self.bind_pattern(param);
                 }
                 let pair = pairs.next().unwrap();
                 let body = self.function_body(pair);
@@ -598,7 +592,8 @@ impl<'i> ParseState<'i> {
                                     let value = if let Some(second) = pairs.next() {
                                         self.expr(second)
                                     } else {
-                                        self.term(first)
+                                        let span = first.as_span();
+                                        Node::Term(self.ident_term(first), span)
                                     };
                                     entries.push(Entry::Field(ident, value));
                                 }
