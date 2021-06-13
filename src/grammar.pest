@@ -64,7 +64,7 @@ expr = { expr_if | expr_or }
 list_pattern = { "[" ~ (pattern ~ ","?)* ~ "]" }
 field_pattern = { ident ~ (":" ~ pattern)? }
 entity_pattern = { "{" ~ (field_pattern ~ ","?)* ~ "}" }
-pattern = { ident | list_pattern | entity_pattern }
+pattern = { ident | int | string | list_pattern | entity_pattern }
 
 // Items
 function_def = { ident ~ "(" ~ (param ~ ","?)* ~ ")" ~ "=" ~ expr }

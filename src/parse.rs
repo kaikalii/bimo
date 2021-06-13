@@ -171,6 +171,10 @@ impl<'i> ParseState<'i> {
                     }
                 }
             }
+            Pattern::Nil(_)
+            | Pattern::Bool { .. }
+            | Pattern::Int { .. }
+            | Pattern::String { .. } => {}
         }
     }
     fn items(&mut self, pair: Pair<'i, Rule>) -> Items<'i> {
@@ -252,6 +256,15 @@ impl<'i> ParseState<'i> {
     fn pattern(&mut self, pair: Pair<'i, Rule>) -> Pattern<'i> {
         let pair = only(pair);
         match pair.as_rule() {
+            Rule::ident if pair.as_str() == "nil" => Pattern::Nil(pair.as_span()),
+            Rule::ident if pair.as_str() == "true" => Pattern::Bool {
+                b: true,
+                span: pair.as_span(),
+            },
+            Rule::ident if pair.as_str() == "false" => Pattern::Bool {
+                b: false,
+                span: pair.as_span(),
+            },
             Rule::ident => Pattern::Single(self.ident(pair)),
             Rule::list_pattern => {
                 let span = pair.as_span();
@@ -268,6 +281,20 @@ impl<'i> ParseState<'i> {
                     patterns.push(self.field_pattern(pair));
                 }
                 Pattern::Entity { patterns, span }
+            }
+            Rule::int => {
+                let span = pair.as_span();
+                Pattern::Int {
+                    int: self.int(pair),
+                    span,
+                }
+            }
+            Rule::string => {
+                let span = pair.as_span();
+                Pattern::String {
+                    string: self.string_literal(pair),
+                    span,
+                }
             }
             rule => unreachable!("{:?}", rule),
         }
@@ -492,17 +519,20 @@ impl<'i> ParseState<'i> {
     fn call_args(&mut self, pair: Pair<'i, Rule>) -> Vec<Node<'i>> {
         pair.into_inner().map(|pair| self.expr(pair)).collect()
     }
+    fn int(&mut self, pair: Pair<'i, Rule>) -> i64 {
+        match pair.as_str().parse::<i64>() {
+            Ok(i) => i,
+            Err(_) => {
+                self.errors.push(CheckError::InvalidLiteral(pair.as_span()));
+                0
+            }
+        }
+    }
     fn term(&mut self, pair: Pair<'i, Rule>) -> Node<'i> {
         let span = pair.as_span();
         let pair = only(pair);
         let term = match pair.as_rule() {
-            Rule::int => match pair.as_str().parse::<i64>() {
-                Ok(i) => Term::Int(i),
-                Err(_) => {
-                    self.errors.push(CheckError::InvalidLiteral(pair.as_span()));
-                    Term::Int(0)
-                }
-            },
+            Rule::int => Term::Int(self.int(pair)),
             Rule::real => match pair.as_str().parse::<f64>() {
                 Ok(i) => Term::Real(i),
                 Err(_) => {

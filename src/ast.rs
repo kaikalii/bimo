@@ -105,6 +105,19 @@ pub enum Pattern<'i> {
         patterns: Vec<FieldPattern<'i>>,
         span: Span<'i>,
     },
+    Nil(Span<'i>),
+    Bool {
+        b: bool,
+        span: Span<'i>,
+    },
+    Int {
+        int: i64,
+        span: Span<'i>,
+    },
+    String {
+        string: String,
+        span: Span<'i>,
+    },
 }
 
 impl<'i> Pattern<'i> {
@@ -113,6 +126,10 @@ impl<'i> Pattern<'i> {
             Pattern::Single(ident) => &ident.span,
             Pattern::List { span, .. } => span,
             Pattern::Entity { span, .. } => span,
+            Pattern::Nil(span) => span,
+            Pattern::Bool { span, .. } => span,
+            Pattern::Int { span, .. } => span,
+            Pattern::String { span, .. } => span,
         }
     }
 }

@@ -283,6 +283,28 @@ impl<'i> Runtime<'i> {
                     false
                 }
             }
+            Pattern::Nil(_) => val == Value::Nil,
+            Pattern::Bool { b: b1, .. } => {
+                if let Value::Bool(b2) = val {
+                    b1 == &b2
+                } else {
+                    false
+                }
+            }
+            Pattern::Int { int, .. } => {
+                if let Value::Num(num) = val {
+                    int == &num.to_i64()
+                } else {
+                    false
+                }
+            }
+            Pattern::String { string, .. } => {
+                if let Value::String(s) = val {
+                    *s == **string
+                } else {
+                    false
+                }
+            }
         }
     }
     fn bind_field_pattern(
