@@ -94,11 +94,10 @@ impl<'i> Entity<'i> {
         }
     }
     pub fn get(&self, key: impl AsRef<Key<'i>>) -> &Value<'i> {
-        if let Some(val) = self.map.get(key.as_ref()) {
-            val
-        } else {
-            &Value::Nil
-        }
+        self.try_get(key).unwrap_or(&Value::Nil)
+    }
+    pub fn try_get(&self, key: impl AsRef<Key<'i>>) -> Option<&Value<'i>> {
+        self.map.get(key.as_ref())
     }
     pub fn set(&mut self, key: Key<'i>, val: Value<'i>) {
         let map = Rc::make_mut(&mut self.map);

@@ -56,17 +56,18 @@ expr_as = { expr_mdr ~ (op_as ~ expr_mdr)* }
 expr_cmp = { expr_as ~ (op_comp ~ expr_as)* }
 expr_and = { expr_cmp ~ (NEWLINE? ~ op_and ~ NEWLINE? ~ expr_cmp)* }
 expr_or = { expr_and ~ (NEWLINE? ~ op_or ~ NEWLINE? ~ expr_and)* }
-expr_if = { "if" ~ expr ~ "then"? ~ NEWLINE? ~ expr ~ "else" ~ expr }
-expr = { expr_or | expr_if  }
+expr_if = { "if" ~ expr ~ "then"? ~ NEWLINE? ~ expr ~ NEWLINE? ~ "else" ~ NEWLINE? ~ expr }
+expr_bind = { pattern ~ "=" ~ expr }
+expr = { expr_bind | expr_if | expr_or }
 
-// Items
-function_sig = { ident ~ "(" ~ (param ~ ","?)* ~ ")" }
+// Patterns
 list_pattern = { "[" ~ (ident ~ ","?)* ~ "]" }
 field_pattern = { ident ~ (":" ~ ident)? }
 entity_pattern = { "{" ~ (field_pattern ~ ","?)* ~ "}" }
 pattern = { ident | list_pattern | entity_pattern }
-def_left = { function_sig | pattern }
-def = { def_left ~ "=" ~ expr }
-item = { def | expr }
+
+// Items
+function_def = { ident ~ "(" ~ (param ~ ","?)* ~ ")" ~ "=" ~ expr }
+item = { function_def | expr }
 items = { (item ~ NEWLINE*)* }
 file = { SOI ~ NEWLINE* ~ items ~ EOI }

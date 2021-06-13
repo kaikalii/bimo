@@ -192,7 +192,7 @@ impl<'i> ParseState<'i> {
         let pair = only(pair);
         match pair.as_rule() {
             Rule::expr => Item::Node(self.expr(pair)),
-            Rule::def => self.def(pair),
+            Rule::function_def => self.function_def(pair),
             rule => unreachable!("{:?}", rule),
         }
     }
@@ -218,51 +218,49 @@ impl<'i> ParseState<'i> {
         let ident = self.bound_ident(pairs.next().unwrap());
         Param { ident }
     }
-    fn def(&mut self, pair: Pair<'i, Rule>) -> Item<'i> {
+    fn function_def(&mut self, pair: Pair<'i, Rule>) -> Item<'i> {
         let mut pairs = pair.into_inner();
-        let pair = only(pairs.next().unwrap());
-        let left = match pair.as_rule() {
-            Rule::function_sig => {
-                let span = pair.as_span();
-                let mut pairs = pair.into_inner();
-                let ident = self.ident(pairs.next().unwrap());
-                if ident.is_underscore() {
-                    self.errors
-                        .push(CheckError::FunctionNamedUnderscore(ident.span.clone()));
-                }
-                self.bind(ident.name);
-                self.push_function_scope();
-                let mut params = Vec::new();
-                for pair in pairs {
-                    match pair.as_rule() {
-                        Rule::param => {
-                            let param = self.param(pair);
-                            self.bind(param.ident.name);
-                            params.push(param)
-                        }
-                        rule => unreachable!("{:?}", rule),
-                    }
-                }
-                DefLeft::Function {
-                    ident,
-                    params,
-                    span,
-                }
-            }
-            Rule::pattern => {
-                let pattern = self.pattern(only(pair));
-                self.bind_pattern(&pattern);
-                DefLeft::Pattern(pattern)
-            }
-            rule => unreachable!("{:?}", rule),
-        };
-        let body = self.expr(pairs.next().unwrap());
-        if let DefLeft::Function { .. } = left {
-            self.pop_function_scope();
+        let ident = self.ident(pairs.next().unwrap());
+        if ident.is_underscore() {
+            self.errors
+                .push(CheckError::FunctionNamedUnderscore(ident.span.clone()));
         }
-        Item::Def(Def { left, body })
+        self.bind(ident.name);
+        self.push_function_scope();
+        let mut params = Vec::new();
+        let mut body = None;
+        for pair in pairs {
+            match pair.as_rule() {
+                Rule::param => {
+                    let param = self.param(pair);
+                    self.bind(param.ident.name);
+                    params.push(param)
+                }
+                Rule::expr => body = Some(self.expr(pair)),
+                rule => unreachable!("{:?}", rule),
+            }
+        }
+        self.pop_function_scope();
+        Item::FunctionDef(FunctionDef {
+            ident,
+            params,
+            body: body.unwrap(),
+        })
+    }
+    fn expr_bind(&mut self, pair: Pair<'i, Rule>) -> Node<'i> {
+        let span = pair.as_span();
+        let mut pairs = pair.into_inner();
+        let pattern = self.pattern(pairs.next().unwrap());
+        let body = self.expr(pairs.next().unwrap());
+        self.bind_pattern(&pattern);
+        Node::Bind(BindExpr {
+            pattern,
+            body: body.into(),
+            span,
+        })
     }
     fn pattern(&mut self, pair: Pair<'i, Rule>) -> Pattern<'i> {
+        let pair = only(pair);
         match pair.as_rule() {
             Rule::ident => Pattern::Single(self.ident(pair)),
             Rule::list_pattern => {
@@ -303,6 +301,7 @@ impl<'i> ParseState<'i> {
         match pair.as_rule() {
             Rule::expr_or => self.expr_or(pair),
             Rule::expr_if => self.expr_if(pair),
+            Rule::expr_bind => self.expr_bind(pair),
             rule => unreachable!("{:?}", rule),
         }
     }

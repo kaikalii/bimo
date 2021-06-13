@@ -66,14 +66,14 @@ impl<'i> Eq for Ident<'i> {}
 #[derive(Debug, Clone)]
 pub enum Item<'i> {
     Node(Node<'i>),
-    Def(Def<'i>),
+    FunctionDef(FunctionDef<'i>),
 }
 
 impl<'i> Item<'i> {
     pub fn span(&self) -> &Span<'i> {
         match self {
             Item::Node(node) => node.span(),
-            Item::Def(def) => &def.left.span(),
+            Item::FunctionDef(def) => &def.ident.span,
         }
     }
 }
@@ -88,28 +88,10 @@ pub struct Param<'i> {
 pub type Params<'i> = Vec<Param<'i>>;
 
 #[derive(Debug, Clone)]
-pub struct Def<'i> {
-    pub left: DefLeft<'i>,
+pub struct FunctionDef<'i> {
+    pub ident: Ident<'i>,
+    pub params: Params<'i>,
     pub body: Node<'i>,
-}
-
-#[derive(Debug, Clone)]
-pub enum DefLeft<'i> {
-    Pattern(Pattern<'i>),
-    Function {
-        ident: Ident<'i>,
-        params: Params<'i>,
-        span: Span<'i>,
-    },
-}
-
-impl<'i> DefLeft<'i> {
-    pub fn span(&self) -> &Span<'i> {
-        match self {
-            DefLeft::Pattern(pattern) => pattern.span(),
-            DefLeft::Function { span, .. } => span,
-        }
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -162,6 +144,7 @@ pub enum Node<'i> {
     Call(CallExpr<'i>),
     Access(AccessExpr<'i>),
     If(IfExpr<'i>),
+    Bind(BindExpr<'i>),
 }
 
 impl<'i> Node<'i> {
@@ -173,8 +156,16 @@ impl<'i> Node<'i> {
             Node::Call(expr) => &expr.span,
             Node::Access(expr) => &expr.span,
             Node::If(expr) => &expr.span,
+            Node::Bind(expr) => &expr.span,
         }
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct BindExpr<'i> {
+    pub pattern: Pattern<'i>,
+    pub body: Box<Node<'i>>,
+    pub span: Span<'i>,
 }
 
 #[derive(Debug, Clone)]

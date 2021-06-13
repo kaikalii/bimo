@@ -231,24 +231,16 @@ impl<'i> Runtime<'i> {
     fn eval_item(&mut self, item: &Item<'i>) -> RuntimeResult<'i> {
         match item {
             Item::Node(node) => self.eval_node(node),
-            Item::Def(def) => {
-                match &def.left {
-                    DefLeft::Function { ident, params, .. } => {
-                        let val = Value::Function(
-                            Function::Bimo(BimoFunction {
-                                scope: self.scope.clone(),
-                                params: params.clone(),
-                                body: def.body.clone().into(),
-                            })
-                            .into(),
-                        );
-                        self.bind(ident, val);
-                    }
-                    DefLeft::Pattern(pattern) => {
-                        let val = self.eval_node(&def.body)?;
-                        self.bind_pattern(pattern, val);
-                    }
-                }
+            Item::FunctionDef(def) => {
+                let val = Value::Function(
+                    Function::Bimo(BimoFunction {
+                        scope: self.scope.clone(),
+                        params: def.params.clone(),
+                        body: def.body.clone().into(),
+                    })
+                    .into(),
+                );
+                self.bind(&def.ident, val);
                 Ok(Value::Nil)
             }
         }
@@ -258,52 +250,67 @@ impl<'i> Runtime<'i> {
             self.scope.values.borrow_mut().insert(ident.name, val);
         }
     }
-    fn bind_pattern(&mut self, pattern: &Pattern<'i>, val: Value<'i>) {
+    fn bind_pattern(&mut self, pattern: &Pattern<'i>, val: Value<'i>) -> bool {
         match pattern {
-            Pattern::Single(ident) => self.bind(ident, val),
+            Pattern::Single(ident) => {
+                self.bind(ident, val);
+                true
+            }
             Pattern::List { patterns, .. } => {
                 if let Value::List(list) = val {
-                    for (pattern, item) in
-                        patterns.iter().zip(list.iter().chain(repeat(&Value::Nil)))
-                    {
-                        self.bind_pattern(pattern, item.clone())
-                    }
+                    patterns
+                        .iter()
+                        .zip(list.iter().chain(repeat(&Value::Nil)))
+                        .fold(true, |acc, (pattern, item)| {
+                            self.bind_pattern(pattern, item.clone()) && acc
+                        })
                 } else {
                     for pattern in patterns {
-                        self.bind_pattern(pattern, Value::Nil)
+                        self.bind_pattern(pattern, Value::Nil);
                     }
+                    false
                 }
             }
             Pattern::Entity { patterns, .. } => {
                 if let Value::Entity(map) = val {
-                    for pattern in patterns {
-                        self.bind_field_pattern(pattern, Some(&map));
-                    }
+                    patterns.iter().fold(true, |acc, pattern| {
+                        self.bind_field_pattern(pattern, Some(&map)) && acc
+                    })
                 } else {
                     for pattern in patterns {
                         self.bind_field_pattern(pattern, None);
                     }
+                    false
                 }
             }
         }
     }
-    fn bind_field_pattern(&mut self, pattern: &FieldPattern<'i>, source: Option<&Entity<'i>>) {
+    fn bind_field_pattern(
+        &mut self,
+        pattern: &FieldPattern<'i>,
+        source: Option<&Entity<'i>>,
+    ) -> bool {
         match pattern {
             FieldPattern::SameName(ident) => {
-                let val = if let Some(val) = source.map(|map| map.get(&Key::Field(ident.clone()))) {
-                    val.clone()
+                let (val, found) = if let Some(val) =
+                    source.and_then(|map| map.try_get(Key::Field(ident.clone())))
+                {
+                    (val.clone(), true)
                 } else {
-                    Value::Nil
+                    (Value::Nil, false)
                 };
                 self.bind(&ident, val);
+                found
             }
             FieldPattern::Pattern { field, pattern, .. } => {
-                let val = if let Some(val) = source.map(|map| map.get(&Key::Field(field.clone()))) {
-                    val.clone()
+                let (val, found) = if let Some(val) =
+                    source.and_then(|map| map.try_get(Key::Field(field.clone())))
+                {
+                    (val.clone(), true)
                 } else {
-                    Value::Nil
+                    (Value::Nil, false)
                 };
-                self.bind_pattern(pattern, val);
+                self.bind_pattern(pattern, val) && found
             }
         }
     }
@@ -315,7 +322,12 @@ impl<'i> Runtime<'i> {
             Node::Call(expr) => self.eval_call(expr),
             Node::Access(expr) => self.eval_access_expr(expr),
             Node::If(expr) => self.eval_if_expr(expr),
+            Node::Bind(expr) => self.eval_bind_expr(expr),
         }
+    }
+    fn eval_bind_expr(&mut self, expr: &BindExpr<'i>) -> RuntimeResult<'i> {
+        let val = self.eval_node(&expr.body)?;
+        Ok(Value::Bool(self.bind_pattern(&expr.pattern, val)))
     }
     fn eval_if_expr(&mut self, expr: &IfExpr<'i>) -> RuntimeResult<'i> {
         let condition = self.eval_node(&expr.condition)?;
