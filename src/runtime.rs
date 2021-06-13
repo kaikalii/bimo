@@ -15,7 +15,7 @@ use crate::{
     entity::{Entity, Key},
     num::Num,
     parse::{parse, CheckError, Rule},
-    pattern::{FieldPattern, Pattern},
+    pattern::{FieldPattern, FieldPatternType, Pattern, PatternType},
     value::*,
 };
 
@@ -163,12 +163,12 @@ impl<'i> Scope<'i> {
         }
     }
     fn bind_pattern(&mut self, pattern: &Pattern<'i>, val: Value<'i>) -> Value<'i> {
-        match pattern {
-            Pattern::Single(ident) => {
+        match &pattern.ty {
+            PatternType::Single(ident) => {
                 self.bind(ident, val);
                 Value::Bool(true)
             }
-            Pattern::List { patterns, .. } => Value::Bool(if let Value::List(list) = val {
+            PatternType::List { patterns, .. } => Value::Bool(if let Value::List(list) = val {
                 patterns
                     .iter()
                     .zip(list.iter().chain(repeat(&Value::Nil)))
@@ -181,7 +181,7 @@ impl<'i> Scope<'i> {
                 }
                 false
             }),
-            Pattern::Entity { patterns, .. } => Value::Bool(if let Value::Entity(map) = val {
+            PatternType::Entity { patterns, .. } => Value::Bool(if let Value::Entity(map) = val {
                 patterns.iter().fold(true, |acc, pattern| {
                     self.bind_field_pattern(pattern, Some(&map)).is_truthy() && acc
                 })
@@ -191,18 +191,18 @@ impl<'i> Scope<'i> {
                 }
                 false
             }),
-            Pattern::Nil(_) => Value::Bool(val == Value::Nil),
-            Pattern::Bool { b: b1, .. } => Value::Bool(if let Value::Bool(b2) = val {
+            PatternType::Nil(_) => Value::Bool(val == Value::Nil),
+            PatternType::Bool { b: b1, .. } => Value::Bool(if let Value::Bool(b2) = val {
                 b1 == &b2
             } else {
                 false
             }),
-            Pattern::Int { int, .. } => Value::Bool(if let Value::Num(num) = val {
+            PatternType::Int { int, .. } => Value::Bool(if let Value::Num(num) = val {
                 int == &num.to_i64()
             } else {
                 false
             }),
-            Pattern::String { string, .. } => Value::Bool(if let Value::String(s) = val {
+            PatternType::String { string, .. } => Value::Bool(if let Value::String(s) = val {
                 *s == **string
             } else {
                 false
@@ -214,8 +214,8 @@ impl<'i> Scope<'i> {
         pattern: &FieldPattern<'i>,
         source: Option<&Entity<'i>>,
     ) -> Value<'i> {
-        match pattern {
-            FieldPattern::SameName(ident) => {
+        match &pattern.ty {
+            FieldPatternType::SameName(ident) => {
                 let (val, found) = if let Some(val) =
                     source.and_then(|map| map.try_get(Key::Field(ident.clone())))
                 {
@@ -226,7 +226,7 @@ impl<'i> Scope<'i> {
                 self.bind(&ident, val);
                 Value::Bool(found)
             }
-            FieldPattern::Pattern { field, pattern, .. } => {
+            FieldPatternType::Pattern { field, pattern, .. } => {
                 let (val, found) = if let Some(val) =
                     source.and_then(|map| map.try_get(Key::Field(field.clone())))
                 {
@@ -483,13 +483,13 @@ impl<'i> Runtime<'i> {
                 Function::Bimo(function) => {
                     let mut call_scope = function.scope.clone();
                     call_scope.push(Scope::default());
-                    for (i, pattern) in function.params.iter().enumerate() {
+                    for (i, param) in function.params.iter().enumerate() {
                         let val = if let Some(arg) = args.get(i) {
                             arg.eval(self)?
                         } else {
                             Value::Nil
                         };
-                        call_scope.bind_pattern(pattern, val);
+                        call_scope.bind_pattern(param, val);
                     }
                     swap(&mut self.scope, &mut call_scope);
                     let val = self.eval_node(&*function.body.borrow())?;
