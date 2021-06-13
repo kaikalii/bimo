@@ -172,5 +172,5 @@ functions!(
             rt.call(&function, &[item], span)?;
         }
         Ok(Value::Nil)
-    }
+    },
 );

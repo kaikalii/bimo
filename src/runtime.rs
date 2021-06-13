@@ -21,7 +21,8 @@ use crate::{
 pub type BimoFn<'i> = fn(&mut Runtime<'i>, &Span<'i>) -> RuntimeResult<'i>;
 
 #[derive(Debug)]
-pub enum RuntimeErrorKind {
+pub enum RuntimeErrorKind<'i> {
+    Check(Vec<CheckError<'i>>),
     InvalidBinaryOperation {
         left: String,
         right: String,
@@ -47,15 +48,21 @@ pub enum RuntimeErrorKind {
     Generic(String),
 }
 
-impl RuntimeErrorKind {
-    pub fn span(self, span: Span) -> RuntimeError {
+impl<'i> RuntimeErrorKind<'i> {
+    pub fn span(self, span: Span<'i>) -> RuntimeError<'i> {
         RuntimeError { kind: self, span }
     }
 }
 
-impl fmt::Display for RuntimeErrorKind {
+impl<'i> fmt::Display for RuntimeErrorKind<'i> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
+            RuntimeErrorKind::Check(errors) => {
+                for error in errors {
+                    writeln!(f, "{}", error)?;
+                }
+                Ok(())
+            }
             RuntimeErrorKind::InvalidBinaryOperation { left, right, op } => match op {
                 BinOp::Add => write!(f, "Unable to add {} and {}", left, right),
                 BinOp::Sub => write!(f, "Unable to subtract {} from {}", right, left),
@@ -90,22 +97,26 @@ impl fmt::Display for RuntimeErrorKind {
 
 #[derive(Debug)]
 pub struct RuntimeError<'i> {
-    pub kind: RuntimeErrorKind,
+    pub kind: RuntimeErrorKind<'i>,
     pub span: Span<'i>,
 }
 
 impl<'i> fmt::Display for RuntimeError<'i> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            "{}",
-            PestError::<Rule>::new_from_span(
-                ErrorVariant::CustomError {
-                    message: self.kind.to_string()
-                },
-                self.span.clone()
+        if let RuntimeErrorKind::Check(_) = self.kind {
+            write!(f, "{}", self.kind)
+        } else {
+            write!(
+                f,
+                "{}",
+                PestError::<Rule>::new_from_span(
+                    ErrorVariant::CustomError {
+                        message: self.kind.to_string()
+                    },
+                    self.span.clone()
+                )
             )
-        )
+        }
     }
 }
 
@@ -113,37 +124,9 @@ impl<'i> Error for RuntimeError<'i> {}
 
 pub type RuntimeResult<'i, T = Value<'i>> = Result<T, RuntimeError<'i>>;
 
-#[derive(Debug)]
-pub enum EvalError<'i> {
-    Check(Vec<CheckError<'i>>),
-    Runtime(RuntimeError<'i>),
-}
-
-impl<'i> fmt::Display for EvalError<'i> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            EvalError::Check(errors) => {
-                for e in errors {
-                    writeln!(f, "{}", e)?;
-                }
-                Ok(())
-            }
-            EvalError::Runtime(e) => e.fmt(f),
-        }
-    }
-}
-
-impl<'i> Error for EvalError<'i> {}
-
-impl<'i> From<Vec<CheckError<'i>>> for EvalError<'i> {
-    fn from(errors: Vec<CheckError<'i>>) -> EvalError<'i> {
-        EvalError::Check(errors)
-    }
-}
-
-impl<'i> From<RuntimeError<'i>> for EvalError<'i> {
-    fn from(e: RuntimeError<'i>) -> EvalError<'i> {
-        EvalError::Runtime(e)
+impl<'i> From<Vec<CheckError<'i>>> for RuntimeError<'i> {
+    fn from(errors: Vec<CheckError<'i>>) -> Self {
+        RuntimeErrorKind::Check(errors).span(Span::new("", 0, 0).unwrap())
     }
 }
 
@@ -215,7 +198,7 @@ impl<'i> Runtime<'i> {
             runtime: self,
         }
     }
-    pub fn eval<'r>(&'r mut self, input: &'i str) -> Result<Value<'i>, EvalError<'i>> {
+    pub fn eval<'r>(&'r mut self, input: &'i str) -> RuntimeResult<'i> {
         let items = parse(self, input)?;
         Ok(self.eval_items(&items)?)
     }

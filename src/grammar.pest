@@ -38,23 +38,27 @@ op_and = { "and" }
 op_or = { "or" }
 op_neg = { "-" }
 
-// Expressions
+// Terms
 paren_expr = { "(" ~ NEWLINE* ~ items ~ ")" }
 param = { ident }
 closure_params = { (param | "|" ~ (param ~ ","?)*) ~ "|" }
 closure = { closure_params ~ expr }
 tag_literal = ${ "#" ~ ident }
 term = { real | int | closure | ident | tag_literal | string | paren_expr | list_literal | entity_literal }
+
+// Access
 call_args = { "(" ~ NEWLINE? ~ (expr ~ ","? ~ NEWLINE?)* ~ ")" }
 field_access = { NEWLINE? ~ "." ~ ident }
 method_call = { NEWLINE? ~ "." ~ ident ~ call_args }
 accessor = { method_call | field_access | call_args }
+
+// Expressions
 expr_access = { term ~ accessor* }
 expr_neg = { op_neg? ~ expr_access }
 expr_mdr = { expr_neg ~ (op_mdr ~ expr_neg)* }
 expr_as = { expr_mdr ~ (op_as ~ expr_mdr)* }
 expr_cmp = { expr_as ~ (op_comp ~ expr_as)* }
-expr_bind = { pattern ~ "=" ~ expr_access | expr_cmp }
+expr_bind = { pattern ~ "=" ~ NEWLINE? ~ expr_access | expr_cmp }
 expr_and = { expr_bind ~ (NEWLINE? ~ op_and ~ NEWLINE? ~ expr_bind)* }
 expr_or = { expr_and ~ (NEWLINE? ~ op_or ~ NEWLINE? ~ expr_and)* }
 expr_if = { "if" ~ expr ~ "then"? ~ NEWLINE? ~ expr ~ NEWLINE? ~ "else" ~ NEWLINE? ~ expr }
