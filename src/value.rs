@@ -11,7 +11,7 @@ use crate::{
     entity::Entity,
     list::List,
     num::Num,
-    runtime::{BimoFn, Scope},
+    runtime::{BimoFn, Runtime, Scope},
 };
 
 #[derive(Debug, Clone)]
@@ -53,6 +53,12 @@ impl<'i> Value<'i> {
             Value::Entity(_) => 6,
             Value::Function(_) => 7,
         }
+    }
+}
+
+impl<'i> Default for Value<'i> {
+    fn default() -> Self {
+        Value::Nil
     }
 }
 
@@ -132,6 +138,9 @@ impl<'i> RustFunction<'i> {
     pub fn new(params: &'static [&'static str], f: BimoFn<'i>) -> Self {
         RustFunction { params, f }
     }
+    pub fn scope(self, runtime: &Runtime<'i>) -> Function<'i> {
+        Function::Rust(self, runtime.scope.clone())
+    }
 }
 
 impl<'i> fmt::Debug for RustFunction<'i> {
@@ -143,5 +152,59 @@ impl<'i> fmt::Debug for RustFunction<'i> {
 #[derive(Debug, Clone)]
 pub enum Function<'i> {
     Bimo(BimoFunction<'i>),
-    Rust(RustFunction<'i>),
+    Rust(RustFunction<'i>, Scope<'i>),
+}
+
+impl<'i> From<bool> for Value<'i> {
+    fn from(b: bool) -> Self {
+        Value::Bool(b)
+    }
+}
+
+impl<'i> From<i64> for Value<'i> {
+    fn from(i: i64) -> Self {
+        Value::Num(i.into())
+    }
+}
+
+impl<'i> From<f64> for Value<'i> {
+    fn from(r: f64) -> Self {
+        Value::Num(r.into())
+    }
+}
+
+impl<'i> From<Num> for Value<'i> {
+    fn from(num: Num) -> Self {
+        Value::Num(num)
+    }
+}
+
+impl<'i> From<String> for Value<'i> {
+    fn from(s: String) -> Self {
+        Value::String(s.into())
+    }
+}
+
+impl<'a, 'i> From<&'a str> for Value<'i> {
+    fn from(s: &'a str) -> Self {
+        Value::String(s.into())
+    }
+}
+
+impl<'i> From<Function<'i>> for Value<'i> {
+    fn from(f: Function<'i>) -> Self {
+        Value::Function(f.into())
+    }
+}
+
+impl<'i> From<List<'i>> for Value<'i> {
+    fn from(list: List<'i>) -> Self {
+        Value::List(list)
+    }
+}
+
+impl<'i> From<Entity<'i>> for Value<'i> {
+    fn from(e: Entity<'i>) -> Self {
+        Value::Entity(e)
+    }
 }

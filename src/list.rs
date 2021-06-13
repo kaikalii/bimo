@@ -14,9 +14,28 @@ pub struct List<'i> {
     list: Rc<VecDeque<Value<'i>>>,
 }
 
+impl<'i> Default for List<'i> {
+    fn default() -> Self {
+        List::new()
+    }
+}
+
 impl<'i> List<'i> {
+    pub fn new() -> Self {
+        List {
+            list: Rc::new(VecDeque::new()),
+        }
+    }
+    pub fn with_capacity(capacity: usize) -> Self {
+        List {
+            list: Rc::new(VecDeque::with_capacity(capacity)),
+        }
+    }
     pub fn len(&self) -> usize {
         self.list.len()
+    }
+    pub fn push(&mut self, val: Value<'i>) {
+        Rc::make_mut(&mut self.list).push_back(val);
     }
     pub fn get(&self, index: usize) -> Option<&Value<'i>> {
         self.list.get(index)
@@ -24,6 +43,23 @@ impl<'i> List<'i> {
     pub fn iter(&self) -> vec_deque::Iter<'_, Value<'i>> {
         self.list.iter()
     }
+    pub fn split<const N: usize>(self) -> [Value<'i>; N]
+    where
+        [Value<'i>; N]: Default,
+    {
+        let mut array: [Value<'i>; N] = Default::default();
+        for (item, value) in array.iter_mut().zip(self.into_iter()) {
+            *item = value;
+        }
+        array
+    }
+}
+
+#[macro_export]
+macro_rules! bimo_list {
+    ($($item:expr),* $(,)?) => {
+        crate::value::Value::List(std::iter::empty()$(.chain(std::iter::once($item.into())))*.collect())
+    };
 }
 
 impl<'i> PartialEq for List<'i> {

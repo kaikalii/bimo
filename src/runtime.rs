@@ -18,7 +18,7 @@ use crate::{
     value::*,
 };
 
-pub type BimoFn<'i> = fn(&mut Runtime<'i>, span: &Span<'i>) -> RuntimeResult<'i>;
+pub type BimoFn<'i> = fn(&mut Runtime<'i>, &Span<'i>) -> RuntimeResult<'i>;
 
 #[derive(Debug)]
 pub enum RuntimeErrorKind {
@@ -149,7 +149,7 @@ impl<'i> From<RuntimeError<'i>> for EvalError<'i> {
 
 #[derive(Clone)]
 pub struct Runtime<'i> {
-    scope: Scope<'i>,
+    pub(crate) scope: Scope<'i>,
 }
 
 impl<'i> Default for Runtime<'i> {
@@ -184,6 +184,7 @@ impl<'i> Scope<'i> {
 
 impl<'i> Runtime<'i> {
     pub fn new() -> Self {
+        let base_scope = Scope::default();
         Runtime {
             scope: Scope {
                 parent: None,
@@ -194,7 +195,7 @@ impl<'i> Runtime<'i> {
                         .map(|(name, rf)| {
                             (name, unsafe {
                                 transmute::<_, Value<'i>>(Value::Function(
-                                    Function::Rust(rf).into(),
+                                    Function::Rust(rf, base_scope.clone()).into(),
                                 ))
                             })
                         })
@@ -508,8 +509,8 @@ impl<'i> Runtime<'i> {
                     swap(&mut self.scope, &mut call_scope);
                     val
                 }
-                Function::Rust(function) => {
-                    let call_scope = Scope::default();
+                Function::Rust(function, scope) => {
+                    let call_scope = scope.clone();
                     for (i, param) in function.params.iter().enumerate() {
                         let val = if let Some(arg) = args.get(i) {
                             arg.eval(self)?
@@ -638,7 +639,16 @@ impl<'i, 'r> fmt::Display for ValueFormatter<'i, 'r> {
             Value::Tag(ident) => {
                 write!(f, "#{}", ident.name)
             }
-            Value::List(list) => f.debug_list().entries(list).finish(),
+            Value::List(list) => {
+                write!(f, "[")?;
+                for (i, val) in list.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{}", self.runtime.format(val))?;
+                }
+                write!(f, "]")
+            }
             Value::Entity(entity) => {
                 write!(f, "{{")?;
                 for (i, (key, val)) in entity.iter().sorted_by_key(|(key, _)| *key).enumerate() {
