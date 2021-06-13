@@ -146,7 +146,7 @@ pub enum FieldPattern<'i> {
 }
 
 impl<'i> FieldPattern<'i> {
-    pub fn span(&self) -> &Span<'i> {
+    pub fn _span(&self) -> &Span<'i> {
         match self {
             FieldPattern::SameName(ident) => &ident.span,
             FieldPattern::Pattern { span, .. } => span,

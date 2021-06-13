@@ -1,6 +1,6 @@
 use std::{
-    cell::RefCell, collections::HashMap, error::Error, fmt, intrinsics::transmute, mem::swap,
-    rc::Rc,
+    cell::RefCell, collections::HashMap, error::Error, fmt, intrinsics::transmute, iter::repeat,
+    mem::swap, rc::Rc,
 };
 
 use itertools::Itertools;
@@ -14,7 +14,7 @@ use crate::{
     builtin::FUNCTIONS,
     num::Num,
     parse::{parse, CheckError, Rule},
-    value::{BimoFunction, Function, HashState, Key, Value},
+    value::*,
 };
 
 pub type BimoFn<'i> = fn(&mut Runtime<'i>, span: &Span<'i>) -> RuntimeResult<'i>;
@@ -146,8 +146,15 @@ impl<'i> From<RuntimeError<'i>> for EvalError<'i> {
     }
 }
 
+#[derive(Clone)]
 pub struct Runtime<'i> {
     scope: Scope<'i>,
+}
+
+impl<'i> Default for Runtime<'i> {
+    fn default() -> Self {
+        Runtime::new()
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -225,20 +232,78 @@ impl<'i> Runtime<'i> {
         match item {
             Item::Node(node) => self.eval_node(node),
             Item::Def(def) => {
-                let val = if def.params.is_empty() {
-                    self.eval_node(&def.body)?
-                } else {
-                    Value::Function(
-                        Function::Bimo(BimoFunction {
-                            scope: self.scope.clone(),
-                            params: def.params.clone(),
-                            body: def.body.clone().into(),
-                        })
-                        .into(),
-                    )
-                };
-                self.scope.values.borrow_mut().insert(def.ident.name, val);
+                match &def.left {
+                    DefLeft::Function { ident, params, .. } => {
+                        let val = Value::Function(
+                            Function::Bimo(BimoFunction {
+                                scope: self.scope.clone(),
+                                params: params.clone(),
+                                body: def.body.clone().into(),
+                            })
+                            .into(),
+                        );
+                        self.bind(ident, val);
+                    }
+                    DefLeft::Pattern(pattern) => {
+                        let val = self.eval_node(&def.body)?;
+                        self.bind_pattern(pattern, val);
+                    }
+                }
                 Ok(Value::Nil)
+            }
+        }
+    }
+    fn bind(&self, ident: &Ident<'i>, val: Value<'i>) {
+        if !ident.is_underscore() {
+            self.scope.values.borrow_mut().insert(ident.name, val);
+        }
+    }
+    fn bind_pattern(&mut self, pattern: &Pattern<'i>, val: Value<'i>) {
+        match pattern {
+            Pattern::Single(ident) => self.bind(ident, val),
+            Pattern::List { patterns, .. } => {
+                if let Value::List(list) = val {
+                    for (pattern, item) in
+                        patterns.iter().zip(list.iter().chain(repeat(&Value::Nil)))
+                    {
+                        self.bind_pattern(pattern, item.clone())
+                    }
+                } else {
+                    for pattern in patterns {
+                        self.bind_pattern(pattern, Value::Nil)
+                    }
+                }
+            }
+            Pattern::Entity { patterns, .. } => {
+                if let Value::Entity(map) = val {
+                    for pattern in patterns {
+                        self.bind_field_pattern(pattern, Some(&map));
+                    }
+                } else {
+                    for pattern in patterns {
+                        self.bind_field_pattern(pattern, None);
+                    }
+                }
+            }
+        }
+    }
+    fn bind_field_pattern(&mut self, pattern: &FieldPattern<'i>, source: Option<&Entity<'i>>) {
+        match pattern {
+            FieldPattern::SameName(ident) => {
+                let val = if let Some(val) = source.map(|map| map.get(ident.name)) {
+                    val.clone()
+                } else {
+                    Value::Nil
+                };
+                self.bind(&ident, val);
+            }
+            FieldPattern::Pattern { field, pattern, .. } => {
+                let val = if let Some(val) = source.map(|map| map.get(field.name)) {
+                    val.clone()
+                } else {
+                    Value::Nil
+                };
+                self.bind_pattern(pattern, val);
             }
         }
     }
@@ -274,15 +339,15 @@ impl<'i> Runtime<'i> {
                     .collect::<Result<_, _>>()?,
             )),
             Term::Entity { entries, default } => {
-                let mut map = HashMap::with_capacity_and_hasher(entries.len(), HashState);
+                let mut entity = Entity::with_capacity(entries.len());
                 for entry in entries {
                     match entry {
-                        Entry::Tag(ident) => map.insert(Key::Tag(ident.clone()), Value::Bool(true)),
+                        Entry::Tag(ident) => entity.set(Key::Tag(ident.clone()), Value::Bool(true)),
                         Entry::Field(ident, node) => {
-                            map.insert(Key::Field(ident.clone()), self.eval_node(node)?)
+                            entity.set(Key::Field(ident.clone()), self.eval_node(node)?)
                         }
                         Entry::Index(key, val) => {
-                            map.insert(Key::Value(self.eval_node(key)?), self.eval_node(val)?)
+                            entity.set(Key::Value(self.eval_node(key)?), self.eval_node(val)?)
                         }
                     };
                 }
@@ -292,17 +357,19 @@ impl<'i> Runtime<'i> {
                     match default {
                         Value::Nil => {}
                         Value::Tag(id) => {
-                            map.insert(Key::Tag(id), Value::Bool(true));
+                            entity.set(Key::Tag(id), Value::Bool(true));
                         }
-                        Value::Entity(default_map) => match Rc::try_unwrap(default_map) {
-                            Ok(default_map) => {
-                                for (k, v) in default_map {
-                                    map.entry(k).or_insert(v);
+                        Value::Entity(default_map) => match default_map.try_into_iter() {
+                            Ok(default) => {
+                                for (k, v) in default {
+                                    entity.entry(k).or_insert(v);
                                 }
                             }
-                            Err(default_map) => {
-                                for (k, v) in &*default_map {
-                                    map.entry(k.clone()).or_insert_with(|| v.clone());
+                            Err(default) => {
+                                for (k, v) in &default {
+                                    if entity.get(k) == &Value::Nil {
+                                        entity.set(k.clone(), v.clone());
+                                    }
                                 }
                             }
                         },
@@ -314,7 +381,7 @@ impl<'i> Runtime<'i> {
                         }
                     }
                 }
-                Value::Entity(Rc::new(map))
+                Value::Entity(entity)
             }
             Term::Expr(items) => {
                 self.scope.push(Scope::default());
@@ -338,13 +405,7 @@ impl<'i> Runtime<'i> {
         let root = self.eval_node(&expr.root)?;
         Ok(match root {
             Value::Entity(map) => match &expr.accessor {
-                Accessor::Key(key) => {
-                    if let Some(val) = map.get(key) {
-                        val.clone()
-                    } else {
-                        Value::Nil
-                    }
-                }
+                Accessor::Key(key) => map.get(key).clone(),
             },
             val => {
                 return Err(RuntimeErrorKind::InvalidFieldAccess {
@@ -433,11 +494,7 @@ impl<'i> Runtime<'i> {
                     .map(|node| self.eval_node(node))
                     .transpose()?
                     .unwrap_or(Value::Nil);
-                if let Some(val) = map.get(&Key::Value(first_arg)) {
-                    val.clone()
-                } else {
-                    Value::Nil
-                }
+                map.get(&first_arg).clone()
             }
             Value::List(list) => {
                 let first_arg = expr

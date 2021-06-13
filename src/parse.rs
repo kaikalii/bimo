@@ -87,7 +87,7 @@ pub(crate) fn parse<'i>(
                 errors: Vec::new(),
             };
             for (name, _) in &*crate::builtin::FUNCTIONS {
-                state.scope().bindings.insert(name);
+                state.bind(name);
             }
             let items = state.items(only(pairs.next().unwrap()));
             if state.errors.is_empty() {
@@ -149,7 +149,9 @@ impl<'i> ParseState<'i> {
         self.scopes.len() as u8
     }
     fn bind(&mut self, name: &'i str) {
-        self.scope().bindings.insert(name);
+        if name != "_" {
+            self.scope().bindings.insert(name);
+        }
     }
     fn bind_pattern(&mut self, pattern: &Pattern<'i>) {
         match pattern {

@@ -63,7 +63,7 @@ expr = { expr_or | expr_if  }
 function_sig = { ident ~ "(" ~ (param ~ ","?)* ~ ")" }
 list_pattern = { "[" ~ (ident ~ ","?)* ~ "]" }
 field_pattern = { ident ~ (":" ~ ident)? }
-entity_pattern = { "{" ~ (entity_pattern ~ ","?)* ~ "}" }
+entity_pattern = { "{" ~ (field_pattern ~ ","?)* ~ "}" }
 pattern = { ident | list_pattern | entity_pattern }
 def_left = { function_sig | pattern }
 def = { def_left ~ "=" ~ expr }
