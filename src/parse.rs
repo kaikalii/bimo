@@ -82,13 +82,13 @@ static FORBIDDEN_REDIFINITIONS: &[&str] = &["nil", "true", "false"];
 
 #[derive(pest_derive::Parser)]
 #[grammar = "grammar.pest"]
-struct KinParser;
+struct BimoParser;
 
 pub(crate) fn parse<'i>(
     _runtime: &mut Runtime<'i>,
     input: &'i str,
 ) -> Result<Items<'i>, Vec<CheckError<'i>>> {
-    match KinParser::parse(Rule::file, input) {
+    match BimoParser::parse(Rule::file, input) {
         Ok(mut pairs) => {
             let mut state = ParseState {
                 input,
@@ -675,7 +675,7 @@ impl<'i> ParseState<'i> {
         let mut s = String::new();
         for pair in pair.into_inner() {
             match pair.as_rule() {
-                Rule::string_text => s.push_str(pair.as_str()),
+                Rule::string_text | Rule::format_string_text => s.push_str(pair.as_str()),
                 Rule::predefined => s.push(match pair.as_str() {
                     "0" => '\0',
                     "r" => '\r',
@@ -713,6 +713,8 @@ impl<'i> ParseState<'i> {
                     }
                     parts.push(StringPart::Format(self.expr(only(pair))));
                 }
+                Rule::escaped_left_curly => s.push('{'),
+                Rule::escaped_right_curly => s.push('}'),
                 rule => unreachable!("{:?}", rule),
             }
         }

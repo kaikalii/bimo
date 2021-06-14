@@ -11,11 +11,16 @@ real = @{ int ~ ("." ~ ASCII_DIGIT+) ~ (^"e" ~ int)? }
 
 // String literals
 string = { ((quoted_string | format_string) ~ NEWLINE?)+ }
-format_string = ${ "$\"" ~ ( string_part | format_arg )* ~ "\"" }
+format_string = ${ "$\"" ~ ( format_arg | formatted_string_part )* ~ "\"" }
+regex_string = ${ "#\"" ~ ( format_arg | formatted_string_part )* ~ "\"" }
 quoted_string = ${ "\"" ~ string_part* ~ "\"" }
 format_arg = !{ "{" ~ expr ~ "}" }
 string_part = _{ string_text | "\\" ~ (predefined | byte | unicode) }
-string_text = @{ (!("\\" | "\"" | "{" | "}" ) ~ ANY)+ }
+formatted_string_part = _{ format_string_text | "\\" ~ (predefined | byte | unicode) | escaped_left_curly | escaped_right_curly }
+escaped_left_curly = { "{{" }
+escaped_right_curly = { "}}" }
+string_text = @{ (!( "\\" | "\"" ) ~ ANY)+ }
+format_string_text = @{ (!( "\\" | "\"" | "{" | "}" ) ~ ANY)+ }
 hex = _{ '0'..'9' | 'i'..'f' | 'i'..'F' }
 unicode_hex = @{ hex{1, 6} }
 predefined = { "n" | "r" | "t" | "\\" | "0" | "\"" | "'" }
