@@ -131,6 +131,19 @@ impl<'i> Scope<'i> {
                 self.bind(ident, val.clone());
                 val.clone()
             }
+            Pattern::Value(ident) => {
+                let pattern_val = self
+                    .val(ident.name)
+                    .unwrap_or_else(|| panic!("Unknown value: {}", ident.name));
+                if let Value::Pattern(pattern) = pattern_val {
+                    self.bind_pattern(&pattern, val, required)?
+                } else {
+                    return Err(RuntimeError::new(
+                        format!("Attempted to use {} as a pattern", pattern_val.type_name()),
+                        ident.span.clone(),
+                    ));
+                }
+            }
             Pattern::Bound { left, right, .. } => {
                 let val = self.bind_pattern(right, &val, required)?;
                 self.bind_pattern(left, &val, required)?

@@ -170,6 +170,7 @@ impl<'i> ParseState<'i> {
     fn bind_pattern(&mut self, pattern: &Pattern<'i>) {
         match pattern {
             Pattern::Single(ident) => self.bind(ident),
+            Pattern::Value(_) => {}
             Pattern::Bound { left, .. } => self.bind_pattern(left),
             Pattern::List { patterns, .. } => {
                 for pattern in patterns {
@@ -263,7 +264,7 @@ impl<'i> ParseState<'i> {
         let first = pairs.next().unwrap();
         let left = self.pattern(first);
         if let Some(second) = pairs.next() {
-            let right = self.pattern(second);
+            let right = self.pattern_impl(second, true);
             Pattern::Bound {
                 left: left.into(),
                 right: right.into(),
@@ -274,6 +275,9 @@ impl<'i> ParseState<'i> {
         }
     }
     fn pattern(&mut self, pair: Pair<'i, Rule>) -> Pattern<'i> {
+        self.pattern_impl(pair, false)
+    }
+    fn pattern_impl(&mut self, pair: Pair<'i, Rule>, right: bool) -> Pattern<'i> {
         let pair = only(pair);
         match pair.as_rule() {
             Rule::ident if pair.as_str() == "nil" => Pattern::Nil(pair.as_span()),
@@ -285,6 +289,11 @@ impl<'i> ParseState<'i> {
                 b: false,
                 span: pair.as_span(),
             },
+            Rule::ident if right => {
+                let ident = self.ident(pair);
+                self.verify_ident(&ident);
+                Pattern::Value(ident)
+            }
             Rule::ident => Pattern::Single(self.ident(pair)),
             Rule::list_pattern => {
                 let span = pair.as_span();

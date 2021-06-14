@@ -1,7 +1,7 @@
 # TODO
 
-- Add match expressions
 - Add type patterns
+- Add elipses patterns to lists
 - Add optional pattern
 - Add early returns
 - Add error values
