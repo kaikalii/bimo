@@ -5,7 +5,7 @@ use pest::Span;
 use crate::{ast::Ident, format::FormatSettings};
 
 #[derive(Clone)]
-pub enum PatternType<'i> {
+pub enum Pattern<'i> {
     Single(Ident<'i>),
     List {
         patterns: Vec<Pattern<'i>>,
@@ -30,40 +30,28 @@ pub enum PatternType<'i> {
     },
 }
 
-#[derive(Clone)]
-pub struct Pattern<'i> {
-    pub ty: PatternType<'i>,
-    pub required: bool,
-}
-
 impl<'i> Pattern<'i> {
     pub fn span(&self) -> &Span<'i> {
-        match &self.ty {
-            PatternType::Single(ident) => &ident.span,
-            PatternType::List { span, .. } => span,
-            PatternType::Entity { span, .. } => span,
-            PatternType::Nil(span) => span,
-            PatternType::Bool { span, .. } => span,
-            PatternType::Int { span, .. } => span,
-            PatternType::String { span, .. } => span,
+        match self {
+            Pattern::Single(ident) => &ident.span,
+            Pattern::List { span, .. } => span,
+            Pattern::Entity { span, .. } => span,
+            Pattern::Nil(span) => span,
+            Pattern::Bool { span, .. } => span,
+            Pattern::Int { span, .. } => span,
+            Pattern::String { span, .. } => span,
         }
     }
 }
 
 #[derive(Clone)]
-pub enum FieldPatternType<'i> {
+pub enum FieldPattern<'i> {
     SameName(Ident<'i>),
     Pattern {
         field: Ident<'i>,
         pattern: Pattern<'i>,
         span: Span<'i>,
     },
-}
-
-#[derive(Clone)]
-pub struct FieldPattern<'i> {
-    pub ty: FieldPatternType<'i>,
-    pub required: bool,
 }
 
 impl<'i> fmt::Debug for Pattern<'i> {

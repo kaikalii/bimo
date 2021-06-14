@@ -12,7 +12,7 @@ use pest::{
 use crate::{
     ast::*,
     entity::Key,
-    pattern::{FieldPattern, FieldPatternType, Pattern, PatternType},
+    pattern::{FieldPattern, Pattern},
     runtime::Runtime,
 };
 
@@ -168,25 +168,25 @@ impl<'i> ParseState<'i> {
         }
     }
     fn bind_pattern(&mut self, pattern: &Pattern<'i>) {
-        match &pattern.ty {
-            PatternType::Single(ident) => self.bind(ident),
-            PatternType::List { patterns, .. } => {
+        match pattern {
+            Pattern::Single(ident) => self.bind(ident),
+            Pattern::List { patterns, .. } => {
                 for pattern in patterns {
                     self.bind_pattern(pattern);
                 }
             }
-            PatternType::Entity { patterns, .. } => {
+            Pattern::Entity { patterns, .. } => {
                 for pattern in patterns {
-                    match &pattern.ty {
-                        FieldPatternType::SameName(ident) => self.bind(ident),
-                        FieldPatternType::Pattern { pattern, .. } => self.bind_pattern(pattern),
+                    match pattern {
+                        FieldPattern::SameName(ident) => self.bind(ident),
+                        FieldPattern::Pattern { pattern, .. } => self.bind_pattern(pattern),
                     }
                 }
             }
-            PatternType::Nil(_)
-            | PatternType::Bool { .. }
-            | PatternType::Int { .. }
-            | PatternType::String { .. } => {}
+            Pattern::Nil(_)
+            | Pattern::Bool { .. }
+            | Pattern::Int { .. }
+            | Pattern::String { .. } => {}
         }
     }
     fn items(&mut self, pair: Pair<'i, Rule>) -> Items<'i> {
@@ -257,31 +257,25 @@ impl<'i> ParseState<'i> {
         })
     }
     fn pattern(&mut self, pair: Pair<'i, Rule>) -> Pattern<'i> {
-        Pattern {
-            required: pair.as_str().starts_with('!'),
-            ty: self.pattern_type(only(pair)),
-        }
-    }
-    fn pattern_type(&mut self, pair: Pair<'i, Rule>) -> PatternType<'i> {
         let pair = only(pair);
         match pair.as_rule() {
-            Rule::ident if pair.as_str() == "nil" => PatternType::Nil(pair.as_span()),
-            Rule::ident if pair.as_str() == "true" => PatternType::Bool {
+            Rule::ident if pair.as_str() == "nil" => Pattern::Nil(pair.as_span()),
+            Rule::ident if pair.as_str() == "true" => Pattern::Bool {
                 b: true,
                 span: pair.as_span(),
             },
-            Rule::ident if pair.as_str() == "false" => PatternType::Bool {
+            Rule::ident if pair.as_str() == "false" => Pattern::Bool {
                 b: false,
                 span: pair.as_span(),
             },
-            Rule::ident => PatternType::Single(self.ident(pair)),
+            Rule::ident => Pattern::Single(self.ident(pair)),
             Rule::list_pattern => {
                 let span = pair.as_span();
                 let mut patterns = Vec::new();
                 for pair in pair.into_inner() {
                     patterns.push(self.pattern(pair));
                 }
-                PatternType::List { patterns, span }
+                Pattern::List { patterns, span }
             }
             Rule::entity_pattern => {
                 let span = pair.as_span();
@@ -289,18 +283,18 @@ impl<'i> ParseState<'i> {
                 for pair in pair.into_inner() {
                     patterns.push(self.field_pattern(pair));
                 }
-                PatternType::Entity { patterns, span }
+                Pattern::Entity { patterns, span }
             }
             Rule::int => {
                 let span = pair.as_span();
-                PatternType::Int {
+                Pattern::Int {
                     int: self.int(pair),
                     span,
                 }
             }
             Rule::string => {
                 let span = pair.as_span();
-                PatternType::String {
+                Pattern::String {
                     string: self.raw_string(pair).into(),
                     span,
                 }
@@ -309,23 +303,17 @@ impl<'i> ParseState<'i> {
         }
     }
     fn field_pattern(&mut self, pair: Pair<'i, Rule>) -> FieldPattern<'i> {
-        FieldPattern {
-            required: pair.as_str().starts_with('!'),
-            ty: self.field_pattern_type(only(pair)),
-        }
-    }
-    fn field_pattern_type(&mut self, pair: Pair<'i, Rule>) -> FieldPatternType<'i> {
         let span = pair.as_span();
         let mut pairs = pair.into_inner();
         let ident = self.ident(pairs.next().unwrap());
         if let Some(pair) = pairs.next() {
-            FieldPatternType::Pattern {
+            FieldPattern::Pattern {
                 field: ident,
                 pattern: self.pattern(pair),
                 span,
             }
         } else {
-            FieldPatternType::SameName(ident)
+            FieldPattern::SameName(ident)
         }
     }
     fn expr(&mut self, pair: Pair<'i, Rule>) -> Node<'i> {
@@ -628,13 +616,7 @@ impl<'i> ParseState<'i> {
                 }
                 Term::Entity { entries, default }
             }
-            Rule::pattern_literal => Term::Pattern(
-                Pattern {
-                    ty: self.pattern_type(only(pair)),
-                    required: false,
-                }
-                .into(),
-            ),
+            Rule::pattern_literal => Term::Pattern(self.pattern(only(pair)).into()),
             rule => unreachable!("{:?}", rule),
         };
         Node::Term(term, span)

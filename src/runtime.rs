@@ -15,7 +15,7 @@ use crate::{
     entity::{Entity, Key},
     num::Num,
     parse::{parse, CheckError, Rule},
-    pattern::{FieldPattern, FieldPatternType, Pattern, PatternType},
+    pattern::{FieldPattern, Pattern},
     value::*,
 };
 
@@ -24,36 +24,49 @@ pub type BimoFn<'i> = fn(&mut Runtime<'i>, &Span<'i>) -> RuntimeResult<'i>;
 #[derive(Debug)]
 pub struct RuntimeError<'i> {
     pub message: String,
-    pub span: Span<'i>,
+    pub spans: Vec<Span<'i>>,
 }
 
 impl<'i> RuntimeError<'i> {
     pub fn new(message: impl Into<String>, span: Span<'i>) -> Self {
+        RuntimeError::multispan(message, Some(span))
+    }
+    pub fn multispan(
+        message: impl Into<String>,
+        spans: impl IntoIterator<Item = Span<'i>>,
+    ) -> Self {
         RuntimeError {
             message: message.into(),
-            span,
+            spans: spans.into_iter().collect(),
         }
     }
     pub fn unspanned(message: impl Into<String>) -> Self {
-        RuntimeError::new(message, Span::new("", 0, 0).unwrap())
+        RuntimeError::multispan(message, None)
     }
 }
 
 impl<'i> fmt::Display for RuntimeError<'i> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        if self.span.as_str().is_empty() {
+        if self.spans.is_empty() {
             write!(f, "{}", self.message)
         } else {
-            write!(
-                f,
-                "{}",
-                PestError::<Rule>::new_from_span(
-                    ErrorVariant::CustomError {
-                        message: self.message.clone()
-                    },
-                    self.span.clone()
-                )
-            )
+            let mut message = Some(&self.message);
+            for (i, span) in self.spans.iter().enumerate() {
+                if i > 0 {
+                    writeln!(f)?;
+                }
+                write!(
+                    f,
+                    "{}",
+                    PestError::<Rule>::new_from_span(
+                        ErrorVariant::CustomError {
+                            message: message.take().cloned().unwrap_or_default()
+                        },
+                        span.clone()
+                    )
+                )?
+            }
+            Ok(())
         }
     }
 }
@@ -69,7 +82,7 @@ impl<'i> From<Vec<CheckError<'i>>> for RuntimeError<'i> {
             errors
                 .iter()
                 .map(ToString::to_string)
-                .intersperse(", ".into())
+                .intersperse("\n".into())
                 .collect::<String>(),
         )
     }
@@ -106,81 +119,197 @@ impl<'i> Scope<'i> {
             self.values.borrow_mut().insert(ident.name, val);
         }
     }
-    fn bind_pattern(&mut self, pattern: &Pattern<'i>, val: Value<'i>) -> Value<'i> {
-        match &pattern.ty {
-            PatternType::Single(ident) => {
-                self.bind(ident, val);
+    fn bind_pattern(
+        &mut self,
+        pattern: &Pattern<'i>,
+        val: &Value<'i>,
+        required: Option<&Span<'i>>,
+    ) -> RuntimeResult<'i> {
+        Ok(match pattern {
+            Pattern::Single(ident) => {
+                self.bind(ident, val.clone());
                 Value::Bool(true)
             }
-            PatternType::List { patterns, .. } => Value::Bool(if let Value::List(list) = val {
-                patterns
-                    .iter()
-                    .zip(list.iter().chain(repeat(&Value::Nil)))
-                    .fold(true, |acc, (pattern, item)| {
-                        self.bind_pattern(pattern, item.clone()).is_truthy() && acc
-                    })
-            } else {
-                for pattern in patterns {
-                    self.bind_pattern(pattern, Value::Nil);
+            Pattern::List { patterns, span } => {
+                if let Value::List(list) = val {
+                    if let Some(value_span) = required {
+                        if list.len() < patterns.len() {
+                            return Err(RuntimeError::multispan(
+                                format!("List is too short to match pattern: {}", pattern),
+                                vec![span.clone(), value_span.clone()],
+                            ));
+                        }
+                    }
+                    let mut bound_all = true;
+                    for (pattern, val) in
+                        patterns.iter().zip(list.iter().chain(repeat(&Value::Nil)))
+                    {
+                        bound_all =
+                            self.bind_pattern(pattern, val, required)?.is_truthy() && bound_all;
+                    }
+                    Value::Bool(bound_all)
+                } else if let Some(value_span) = required {
+                    return Err(RuntimeError::multispan(
+                        format!(
+                            "Attempted to match {} against list pattern: {}",
+                            val.type_name(),
+                            pattern
+                        ),
+                        vec![span.clone(), value_span.clone()],
+                    ));
+                } else {
+                    for pattern in patterns {
+                        self.bind_pattern(pattern, &Value::Nil, required)?;
+                    }
+                    Value::Bool(false)
                 }
-                false
-            }),
-            PatternType::Entity { patterns, .. } => Value::Bool(if let Value::Entity(map) = val {
-                patterns.iter().fold(true, |acc, pattern| {
-                    self.bind_field_pattern(pattern, Some(&map)).is_truthy() && acc
-                })
-            } else {
-                for pattern in patterns {
-                    self.bind_field_pattern(pattern, None);
+            }
+            Pattern::Entity { patterns, span } => {
+                if let Value::Entity(map) = val {
+                    let mut bound_all = true;
+                    for pattern in patterns {
+                        bound_all = self
+                            .bind_field_pattern(pattern, Some(&map), required)?
+                            .is_truthy()
+                            && bound_all;
+                    }
+                    Value::Bool(bound_all)
+                } else if let Some(value_span) = required {
+                    return Err(RuntimeError::multispan(
+                        format!(
+                            "Attempted to match {} against entity pattern: {}",
+                            val.type_name(),
+                            pattern
+                        ),
+                        vec![span.clone(), value_span.clone()],
+                    ));
+                } else {
+                    for pattern in patterns {
+                        self.bind_field_pattern(pattern, None, required)?;
+                    }
+                    Value::Bool(false)
                 }
-                false
-            }),
-            PatternType::Nil(_) => Value::Bool(val == Value::Nil),
-            PatternType::Bool { b: b1, .. } => Value::Bool(if let Value::Bool(b2) = val {
-                b1 == &b2
-            } else {
-                false
-            }),
-            PatternType::Int { int, .. } => Value::Bool(if let Value::Num(num) = val {
-                int == &num.to_i64()
-            } else {
-                false
-            }),
-            PatternType::String { string, .. } => Value::Bool(if let Value::String(s) = val {
-                *s == **string
-            } else {
-                false
-            }),
-        }
+            }
+            Pattern::Nil(span) => {
+                if let Value::Nil = val {
+                    Value::Bool(true)
+                } else if let Some(value_span) = required {
+                    return Err(RuntimeError::multispan(
+                        format!("Attempted to match {} against nil pattern", val.type_name()),
+                        vec![span.clone(), value_span.clone()],
+                    ));
+                } else {
+                    Value::Bool(false)
+                }
+            }
+            Pattern::Bool { b: b1, span } => {
+                if let Value::Bool(b2) = val {
+                    if let (Some(value_span), true) = (required, b1 != b2) {
+                        return Err(RuntimeError::multispan(
+                            format!("Bool value does not match bool pattern: {}", pattern),
+                            vec![span.clone(), value_span.clone()],
+                        ));
+                    } else {
+                        Value::Bool(b1 == b2)
+                    }
+                } else if let Some(value_span) = required {
+                    return Err(RuntimeError::multispan(
+                        format!(
+                            "Attempted to match {} against bool pattern: {}",
+                            val.type_name(),
+                            pattern
+                        ),
+                        vec![span.clone(), value_span.clone()],
+                    ));
+                } else {
+                    Value::Bool(false)
+                }
+            }
+            Pattern::Int { int, span } => {
+                if let Value::Num(num) = val {
+                    let num = num.to_i64();
+                    if let (Some(value_span), true) = (required, int != &num) {
+                        return Err(RuntimeError::multispan(
+                            format!("Num value does not match int pattern: {}", pattern),
+                            vec![span.clone(), value_span.clone()],
+                        ));
+                    } else {
+                        Value::Bool(int == &num)
+                    }
+                } else if let Some(value_span) = required {
+                    return Err(RuntimeError::multispan(
+                        format!(
+                            "Attempted to match {} against int pattern: {}",
+                            val.type_name(),
+                            pattern
+                        ),
+                        vec![span.clone(), value_span.clone()],
+                    ));
+                } else {
+                    Value::Bool(false)
+                }
+            }
+            Pattern::String { string, span } => {
+                if let Value::String(s) = val {
+                    if let (Some(value_span), true) = (required, string != s) {
+                        return Err(RuntimeError::multispan(
+                            format!("String value does not match string pattern: {}", pattern),
+                            vec![span.clone(), value_span.clone()],
+                        ));
+                    } else {
+                        Value::Bool(string == s)
+                    }
+                } else if let Some(value_span) = required {
+                    return Err(RuntimeError::multispan(
+                        format!(
+                            "Attempted to match {} against string pattern: {}",
+                            val.type_name(),
+                            pattern
+                        ),
+                        vec![span.clone(), value_span.clone()],
+                    ));
+                } else {
+                    Value::Bool(false)
+                }
+            }
+        })
     }
     fn bind_field_pattern(
         &mut self,
         pattern: &FieldPattern<'i>,
         source: Option<&Entity<'i>>,
-    ) -> Value<'i> {
-        match &pattern.ty {
-            FieldPatternType::SameName(ident) => {
-                let (val, found) = if let Some(val) =
-                    source.and_then(|map| map.try_get(Key::Field(ident.clone())))
-                {
-                    (val.clone(), true)
-                } else {
-                    (Value::Nil, false)
-                };
-                self.bind(&ident, val);
-                Value::Bool(found)
+        required: Option<&Span<'i>>,
+    ) -> RuntimeResult<'i> {
+        Ok(match pattern {
+            FieldPattern::SameName(field) => {
+                let val = source.and_then(|map| map.try_get(Key::Field(field.clone())));
+                if let (Some(value_span), true) = (required, val.is_none()) {
+                    return Err(RuntimeError::multispan(
+                        format!("Entity does not contain field '{}' from pattern", field),
+                        vec![field.span.clone(), value_span.clone()],
+                    ));
+                }
+                self.bind(&field, val.cloned().unwrap_or(Value::Nil));
+                Value::Bool(val.is_some())
             }
-            FieldPatternType::Pattern { field, pattern, .. } => {
-                let (val, found) = if let Some(val) =
-                    source.and_then(|map| map.try_get(Key::Field(field.clone())))
-                {
-                    (val.clone(), true)
-                } else {
-                    (Value::Nil, false)
-                };
-                Value::Bool(self.bind_pattern(pattern, val).is_truthy() && found)
+            FieldPattern::Pattern {
+                field,
+                pattern,
+                span,
+            } => {
+                let val = source.and_then(|map| map.try_get(Key::Field(field.clone())));
+                if let (Some(value_span), true) = (required, val.is_none()) {
+                    return Err(RuntimeError::multispan(
+                        format!("Entity does not contain field '{}' from pattern", field),
+                        vec![span.clone(), value_span.clone()],
+                    ));
+                }
+                Value::Bool(
+                    self.bind_pattern(pattern, val.unwrap_or(&Value::Nil), required)?
+                        .is_truthy(),
+                )
             }
-        }
+        })
     }
 }
 
@@ -262,7 +391,7 @@ impl<'i> Runtime<'i> {
     }
     fn eval_bind_expr(&mut self, expr: &BindExpr<'i>) -> RuntimeResult<'i> {
         let val = self.eval_node(&expr.body)?;
-        Ok(self.scope.bind_pattern(&expr.pattern, val))
+        self.scope.bind_pattern(&expr.pattern, &val, None)
     }
     fn eval_if_expr(&mut self, expr: &IfExpr<'i>) -> RuntimeResult<'i> {
         let condition = self.eval_node(&expr.condition)?;
@@ -419,12 +548,12 @@ impl<'i> Runtime<'i> {
                     let mut call_scope = function.scope.clone();
                     call_scope.push(Scope::default());
                     for (i, param) in function.params.iter().enumerate() {
-                        let val = if let Some(arg) = args.get(i) {
-                            arg.eval(self)?
+                        let (val, val_span) = if let Some(arg) = args.get(i) {
+                            (arg.eval(self)?, arg.span())
                         } else {
-                            Value::Nil
+                            (Value::Nil, None)
                         };
-                        call_scope.bind_pattern(param, val);
+                        call_scope.bind_pattern(param, &val, Some(val_span.unwrap_or(span)))?;
                     }
                     swap(&mut self.scope, &mut call_scope);
                     let val = self.eval_node(&*function.body.borrow())?;
@@ -488,11 +617,11 @@ impl<'i> Runtime<'i> {
             Value::Pattern(pattern) => {
                 let first_arg = args
                     .first()
-                    .map(|node| node.eval(self))
+                    .map(|arg| arg.eval(self))
                     .transpose()?
                     .unwrap_or(Value::Nil);
                 self.scope.push(Scope::default());
-                self.scope.bind_pattern(pattern, first_arg)
+                self.scope.bind_pattern(pattern, &first_arg, None)?
             }
             val => {
                 return Err(RuntimeError::new(
@@ -510,17 +639,24 @@ impl<'i> Runtime<'i> {
 
 pub trait Arg<'i> {
     fn eval(&self, runtime: &mut Runtime<'i>) -> RuntimeResult<'i>;
+    fn span(&self) -> Option<&Span<'i>>;
 }
 
 impl<'i> Arg<'i> for Value<'i> {
     fn eval(&self, _: &mut Runtime<'i>) -> RuntimeResult<'i> {
         Ok(self.clone())
     }
+    fn span(&self) -> Option<&Span<'i>> {
+        None
+    }
 }
 
 impl<'i> Arg<'i> for Node<'i> {
     fn eval(&self, runtime: &mut Runtime<'i>) -> RuntimeResult<'i> {
         runtime.eval_node(self)
+    }
+    fn span(&self) -> Option<&Span<'i>> {
+        Some(self.span())
     }
 }
 

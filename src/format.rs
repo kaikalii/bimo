@@ -4,7 +4,7 @@ use itertools::Itertools;
 
 use crate::{
     entity::Key,
-    pattern::{FieldPattern, FieldPatternType, Pattern, PatternType},
+    pattern::{FieldPattern, Pattern},
     value::Value,
 };
 
@@ -94,13 +94,13 @@ impl<'i, 'r> fmt::Debug for Formatter<'r, Pattern<'i>> {
 
 impl<'i, 'r> fmt::Display for Formatter<'r, Pattern<'i>> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match &self.value.ty {
-            PatternType::Single(ident) => write!(f, "{}", ident.name),
-            PatternType::Nil(_) => write!(f, "nil"),
-            PatternType::Bool { b, .. } => write!(f, "{}", b),
-            PatternType::Int { int, .. } => write!(f, "{}", int),
-            PatternType::String { string, .. } => write!(f, "{}", string),
-            PatternType::List { patterns, .. } => {
+        match self.value {
+            Pattern::Single(ident) => write!(f, "{}", ident.name),
+            Pattern::Nil(_) => write!(f, "nil"),
+            Pattern::Bool { b, .. } => write!(f, "{}", b),
+            Pattern::Int { int, .. } => write!(f, "{}", int),
+            Pattern::String { string, .. } => write!(f, "{}", string),
+            Pattern::List { patterns, .. } => {
                 write!(f, "[")?;
                 for (i, pattern) in patterns.iter().enumerate() {
                     if i > 0 {
@@ -110,7 +110,7 @@ impl<'i, 'r> fmt::Display for Formatter<'r, Pattern<'i>> {
                 }
                 write!(f, "]")
             }
-            PatternType::Entity { patterns, .. } => {
+            Pattern::Entity { patterns, .. } => {
                 write!(f, "{{")?;
                 for (i, pattern) in patterns.iter().enumerate() {
                     if i > 0 {
@@ -132,11 +132,11 @@ impl<'i, 'r> fmt::Debug for Formatter<'r, FieldPattern<'i>> {
 
 impl<'i, 'r> fmt::Display for Formatter<'r, FieldPattern<'i>> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match &self.value.ty {
-            FieldPatternType::SameName(ident) => {
+        match self.value {
+            FieldPattern::SameName(ident) => {
                 write!(f, "{}", ident.name)
             }
-            FieldPatternType::Pattern { field, pattern, .. } => {
+            FieldPattern::Pattern { field, pattern, .. } => {
                 write!(f, "{}: {}", field.name, self.settings.format(pattern))
             }
         }
