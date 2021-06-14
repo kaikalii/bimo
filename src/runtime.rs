@@ -498,7 +498,29 @@ impl<'i> Runtime<'i> {
                     .collect::<Result<_, _>>()?,
             ),
             Term::Entity { entries, default } => {
-                let mut entity = Entity::with_capacity(entries.len());
+                let mut entity = if let Some(default) = default {
+                    let span = default.span();
+                    match self.eval_node(default)? {
+                        Value::Nil => Entity::with_capacity(entries.len()),
+                        Value::Tag(id) => {
+                            let mut entity = Entity::with_capacity(entries.len() + 1);
+                            entity.set(Key::Tag(id), Value::Bool(true));
+                            entity
+                        }
+                        Value::Entity(entity) => entity,
+                        val => {
+                            return Err(RuntimeError::new(
+                                format!(
+                                    "Entity cannot be default initialized from {}",
+                                    val.type_name()
+                                ),
+                                span.clone(),
+                            ))
+                        }
+                    }
+                } else {
+                    Entity::with_capacity(entries.len())
+                };
                 for entry in entries {
                     match entry {
                         Entry::Tag(ident) => entity.set(Key::Tag(ident.clone()), Value::Bool(true)),
@@ -509,39 +531,6 @@ impl<'i> Runtime<'i> {
                             entity.set(Key::Value(self.eval_node(key)?), self.eval_node(val)?)
                         }
                     };
-                }
-                if let Some(node) = default {
-                    let span = node.span().clone();
-                    let default = self.eval_node(node)?;
-                    match default {
-                        Value::Nil => {}
-                        Value::Tag(id) => {
-                            entity.set(Key::Tag(id), Value::Bool(true));
-                        }
-                        Value::Entity(default_map) => match default_map.try_into_iter() {
-                            Ok(default) => {
-                                for (k, v) in default {
-                                    entity.entry(k).or_insert(v);
-                                }
-                            }
-                            Err(default) => {
-                                for (k, v) in &default {
-                                    if entity.get(k) == &Value::Nil {
-                                        entity.set(k.clone(), v.clone());
-                                    }
-                                }
-                            }
-                        },
-                        val => {
-                            return Err(RuntimeError::new(
-                                format!(
-                                    "Entity cannot be default initialized from {}",
-                                    val.type_name()
-                                ),
-                                span,
-                            ))
-                        }
-                    }
                 }
                 Value::Entity(entity)
             }
