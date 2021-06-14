@@ -203,8 +203,8 @@ impl<'i> From<Num> for Value<'i> {
     }
 }
 
-impl<'i> From<&'i str> for Value<'i> {
-    fn from(s: &'i str) -> Self {
+impl<'i> From<&str> for Value<'i> {
+    fn from(s: &str) -> Self {
         Value::String(s.into())
     }
 }

@@ -56,7 +56,7 @@ impl<'i, 'r> fmt::Display for Formatter<'r, Value<'i>> {
                     if i > 0 {
                         write!(f, ", ")?;
                     }
-                    write!(f, "{}", self.settings.format(val))?;
+                    write!(f, "{:?}", self.settings.format(val))?;
                 }
                 write!(f, "]")
             }

@@ -8,6 +8,7 @@ use pest::{
     error::{Error as PestError, ErrorVariant},
     Span,
 };
+use regex::Regex;
 
 use crate::{
     ast::*,
@@ -253,19 +254,31 @@ impl<'i> Scope<'i> {
                 pattern: string_pattern,
                 span,
             } => {
-                let string = string_pattern
+                let regex = string_pattern
                     .borrow()
                     .resolved
                     .clone()
                     .expect("Unresolved string pattern");
                 if let Value::String(s) = val {
-                    if let (Some(value_span), true) = (required, &string != s) {
+                    let captures = regex.captures(s);
+                    if let (Some(value_span), None) = (required, captures.as_ref()) {
                         return Err(RuntimeError::multispan(
                             format!("String value does not match string pattern: {}", pattern),
                             vec![span.clone(), value_span.clone()],
                         ));
+                    }
+                    if let Some(captures) = captures {
+                        Value::List(
+                            captures
+                                .iter()
+                                .map(|capture| match capture {
+                                    Some(capture) => capture.as_str().into(),
+                                    None => Value::Nil,
+                                })
+                                .collect(),
+                        )
                     } else {
-                        Value::Bool(&string == s)
+                        Value::Nil
                     }
                 } else if let Some(value_span) = required {
                     return Err(RuntimeError::multispan(
@@ -277,7 +290,7 @@ impl<'i> Scope<'i> {
                         vec![span.clone(), value_span.clone()],
                     ));
                 } else {
-                    Value::Bool(false)
+                    Value::Nil
                 }
             }
         })
@@ -399,7 +412,7 @@ impl<'i> Runtime<'i> {
     }
     fn resolve_pattern(&mut self, pattern: &Pattern<'i>) -> RuntimeResult<'i, ()> {
         match pattern {
-            Pattern::String { pattern, .. } => {
+            Pattern::String { pattern, span } => {
                 let mut pattern = pattern.borrow_mut();
                 if pattern.resolved.is_none() {
                     let mut s = String::new();
@@ -407,11 +420,15 @@ impl<'i> Runtime<'i> {
                         match part {
                             StringPart::Raw(raw) => s.push_str(raw),
                             StringPart::Format(node) => {
-                                s.push_str(&self.eval_node(node)?.to_string())
+                                let val_as_string = self.eval_node(node)?.to_string();
+                                s.push_str(&regex::escape(&val_as_string));
                             }
                         }
                     }
-                    pattern.resolved = Some(s.into());
+                    match Regex::new(&s) {
+                        Ok(regex) => pattern.resolved = Some(regex.into()),
+                        Err(e) => return Err(RuntimeError::new(format!("{}", e), span.clone())),
+                    }
                 }
             }
             Pattern::Entity { patterns, .. } => {
@@ -597,6 +614,7 @@ impl<'i> Runtime<'i> {
                         } else {
                             (Value::Nil, None)
                         };
+                        self.resolve_pattern(param)?;
                         call_scope.bind_pattern(param, &val, Some(val_span.unwrap_or(span)))?;
                     }
                     swap(&mut self.scope, &mut call_scope);

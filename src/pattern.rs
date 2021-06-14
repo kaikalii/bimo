@@ -1,6 +1,7 @@
 use std::{cell::RefCell, fmt, rc::Rc};
 
 use pest::Span;
+use regex::Regex;
 
 use crate::{
     ast::{Ident, StringPart},
@@ -10,7 +11,7 @@ use crate::{
 #[derive(Clone)]
 pub struct StringPattern<'i> {
     pub parts: Vec<StringPart<'i>>,
-    pub resolved: Option<Rc<str>>,
+    pub resolved: Option<Rc<Regex>>,
 }
 
 #[derive(Clone)]
