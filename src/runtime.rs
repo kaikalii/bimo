@@ -3,6 +3,7 @@ use std::{
     mem::transmute, rc::Rc,
 };
 
+use itertools::Itertools;
 use pest::{
     error::{Error as PestError, ErrorVariant},
     Span,
@@ -22,97 +23,34 @@ use crate::{
 pub type BimoFn<'i> = fn(&mut Runtime<'i>, &Span<'i>) -> RuntimeResult<'i>;
 
 #[derive(Debug)]
-pub enum RuntimeErrorKind<'i> {
-    Check(Vec<CheckError<'i>>),
-    InvalidBinaryOperation {
-        left: String,
-        right: String,
-        op: BinOp,
-    },
-    InvalidUnaryOperation {
-        operand: String,
-        op: UnOp,
-    },
-    InvalidCall {
-        called: String,
-    },
-    InvalidEntityDefault {
-        default: String,
-    },
-    InvalidFieldAccess {
-        root: String,
-        field: Option<String>,
-    },
-    InvalidListIndex {
-        index: String,
-    },
-    Generic(String),
+pub struct RuntimeError<'i> {
+    pub message: String,
+    pub span: Span<'i>,
 }
 
-impl<'i> RuntimeErrorKind<'i> {
-    pub fn span(self, span: Span<'i>) -> RuntimeError<'i> {
-        RuntimeError { kind: self, span }
-    }
-}
-
-impl<'i> fmt::Display for RuntimeErrorKind<'i> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            RuntimeErrorKind::Check(errors) => {
-                for error in errors {
-                    writeln!(f, "{}", error)?;
-                }
-                Ok(())
-            }
-            RuntimeErrorKind::InvalidBinaryOperation { left, right, op } => match op {
-                BinOp::Add => write!(f, "Unable to add {} and {}", left, right),
-                BinOp::Sub => write!(f, "Unable to subtract {} from {}", right, left),
-                BinOp::Mul => write!(f, "Unable to multiple {} and {}", left, right),
-                BinOp::Div | BinOp::Rem => write!(f, "Unable to divide {} by {}", left, right),
-                BinOp::Less | BinOp::Greater | BinOp::LessOrEqual | BinOp::GreaterOrEqual => {
-                    write!(f, "Unable to compare {} and {}", left, right)
-                }
-                op => unreachable!("{:?} operation failed when it should not be able", op),
-            },
-            RuntimeErrorKind::InvalidUnaryOperation { operand, op } => match op {
-                UnOp::Neg => write!(f, "Unable to negate {}", operand),
-            },
-            RuntimeErrorKind::InvalidCall { called } => write!(f, "Unable to call {}", called),
-            RuntimeErrorKind::InvalidEntityDefault { default } => {
-                write!(f, "Entity cannot be default initialized from {}", default)
-            }
-            RuntimeErrorKind::InvalidFieldAccess { root, field } => {
-                if let Some(field) = field {
-                    write!(f, "{} cannot has no field {}", root, field)
-                } else {
-                    write!(f, "{} does not have fields", root)
-                }
-            }
-            RuntimeErrorKind::InvalidListIndex { index } => {
-                write!(f, "List cannot be indexed with {}", index)
-            }
-            RuntimeErrorKind::Generic(message) => write!(f, "{}", message),
+impl<'i> RuntimeError<'i> {
+    pub fn new(message: impl Into<String>, span: Span<'i>) -> Self {
+        RuntimeError {
+            message: message.into(),
+            span,
         }
     }
-}
-
-#[derive(Debug)]
-pub struct RuntimeError<'i> {
-    pub kind: RuntimeErrorKind<'i>,
-    pub span: Span<'i>,
+    pub fn unspanned(message: impl Into<String>) -> Self {
+        RuntimeError::new(message, Span::new("", 0, 0).unwrap())
+    }
 }
 
 impl<'i> fmt::Display for RuntimeError<'i> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        if let RuntimeErrorKind::Check(_) = self.kind {
-            write!(f, "{}", self.kind)
+        if self.span.as_str().is_empty() {
+            write!(f, "{}", self.message)
         } else {
             write!(
                 f,
                 "{}",
                 PestError::<Rule>::new_from_span(
                     ErrorVariant::CustomError {
-                        message: self.kind.to_string()
+                        message: self.message.clone()
                     },
                     self.span.clone()
                 )
@@ -126,8 +64,15 @@ impl<'i> Error for RuntimeError<'i> {}
 pub type RuntimeResult<'i, T = Value<'i>> = Result<T, RuntimeError<'i>>;
 
 impl<'i> From<Vec<CheckError<'i>>> for RuntimeError<'i> {
+    #[allow(unstable_name_collisions)]
     fn from(errors: Vec<CheckError<'i>>) -> Self {
-        RuntimeErrorKind::Check(errors).span(Span::new("", 0, 0).unwrap())
+        RuntimeError::unspanned(
+            errors
+                .iter()
+                .map(ToString::to_string)
+                .intersperse(", ".into())
+                .collect::<String>(),
+        )
     }
 }
 
@@ -402,10 +347,13 @@ impl<'i> Runtime<'i> {
                             }
                         },
                         val => {
-                            return Err(RuntimeErrorKind::InvalidEntityDefault {
-                                default: val.type_name().into(),
-                            }
-                            .span(span))
+                            return Err(RuntimeError::new(
+                                format!(
+                                    "Entity cannot be default initialized from {}",
+                                    val.type_name()
+                                ),
+                                span,
+                            ))
                         }
                     }
                 }
@@ -437,11 +385,10 @@ impl<'i> Runtime<'i> {
                 Accessor::Key(key) => map.get(key).clone(),
             },
             val => {
-                return Err(RuntimeErrorKind::InvalidFieldAccess {
-                    root: self.format(&val).to_string(),
-                    field: None,
-                }
-                .span(expr.span.clone()))
+                return Err(RuntimeError::new(
+                    format!("{} does not have fields", self.format(&val)),
+                    expr.span.clone(),
+                ))
             }
         })
     }
@@ -471,11 +418,10 @@ impl<'i> Runtime<'i> {
             UnOp::Neg => match inner {
                 Value::Num(n) => Value::Num(-n),
                 val => {
-                    return Err(RuntimeErrorKind::InvalidUnaryOperation {
-                        operand: val.type_name().into(),
-                        op: expr.op,
-                    }
-                    .span(expr.span.clone()))
+                    return Err(RuntimeError::new(
+                        format!("Unable to negate {}", val.type_name()),
+                        expr.span.clone(),
+                    ))
                 }
             },
         })
@@ -550,10 +496,10 @@ impl<'i> Runtime<'i> {
                         }
                     }
                 } else {
-                    return Err(RuntimeErrorKind::InvalidListIndex {
-                        index: first_arg.type_name().into(),
-                    }
-                    .span(span.clone()));
+                    return Err(RuntimeError::new(
+                        format!("List cannot be indexed with {}", first_arg.type_name()),
+                        span.clone(),
+                    ));
                 }
             }
             Value::Pattern(pattern) => {
@@ -566,10 +512,10 @@ impl<'i> Runtime<'i> {
                 self.scope.bind_pattern(pattern, first_arg)
             }
             val => {
-                return Err(RuntimeErrorKind::InvalidCall {
-                    called: val.type_name().into(),
-                }
-                .span(span.clone()))
+                return Err(RuntimeError::new(
+                    format!("Unable to call {}", val.type_name()),
+                    span.clone(),
+                ))
             }
         })
     }
@@ -607,12 +553,21 @@ fn bin_op_impl<'i>(
     Ok(match (left, right) {
         (Value::Num(a), Value::Num(b)) => f(a, b),
         (a, b) => {
-            return Err(RuntimeErrorKind::InvalidBinaryOperation {
-                left: a.type_name().into(),
-                right: b.type_name().into(),
-                op,
-            }
-            .span(span.clone()))
+            let a = a.type_name();
+            let b = b.type_name();
+            return Err(RuntimeError::new(
+                match op {
+                    BinOp::Add => format!("Unable to add {} and {}", a, b),
+                    BinOp::Sub => format!("Unable to subtract {} from {}", b, a),
+                    BinOp::Mul => format!("Unable to multiple {} and {}", a, b),
+                    BinOp::Div | BinOp::Rem => format!("Unable to divide {} by {}", a, b),
+                    BinOp::Less | BinOp::Greater | BinOp::LessOrEqual | BinOp::GreaterOrEqual => {
+                        format!("Unable to compare {} and {}", a, b)
+                    }
+                    op => unreachable!("{:?} operation failed when it should not be able", op),
+                },
+                span.clone(),
+            ));
         }
     })
 }

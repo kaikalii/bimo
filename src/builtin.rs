@@ -6,7 +6,7 @@ use crate::{
     bimo_list,
     list::List,
     num::Num,
-    runtime::RuntimeErrorKind,
+    runtime::RuntimeError,
     value::{static_str, RustFunction, Value},
 };
 
@@ -38,21 +38,23 @@ macro_rules! require_type {
             $($pattern => $expr,)*
             _ => {
                 let types = [$(stringify!($pattern)),*];
-                return Err(RuntimeErrorKind::Generic(format!(
-                    "Expected {}, but found {}",
-                    types
-                        .iter()
-                        .enumerate()
-                        .map(|(i, name)| format!(
-                            "{}{}",
-                            if i > 0 && i == types.len() - 1 {
-                                if types.len() == 2 { " or " } else { ", or "}
-                            }
-                            else if i > 0 { ", " } else { "" }, name))
-                        .collect::<String>(),
-                    input.type_name()
+                return Err(RuntimeError::new(
+                    format!(
+                        "Expected {}, but found {}",
+                        types
+                            .iter()
+                            .enumerate()
+                            .map(|(i, name)| format!(
+                                "{}{}",
+                                if i > 0 && i == types.len() - 1 {
+                                    if types.len() == 2 { " or " } else { ", or "}
+                                }
+                                else if i > 0 { ", " } else { "" }, name))
+                            .collect::<String>(),
+                        input.type_name()
+                    ),
+                    $span.clone()
                 ))
-                .span($span.clone()));
             }
         }
     }};
