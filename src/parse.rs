@@ -327,9 +327,13 @@ impl<'i> ParseState<'i> {
     fn expr_if(&mut self, pair: Pair<'i, Rule>) -> Node<'i> {
         let span = pair.as_span();
         let mut pairs = pair.into_inner();
+        self.push_paren_scope();
+        let condition = self.expr(pairs.next().unwrap());
+        let if_true = self.expr(pairs.next().unwrap());
+        self.pop_paren_scope();
         Node::If(IfExpr {
-            condition: self.expr(pairs.next().unwrap()).into(),
-            if_true: self.expr(pairs.next().unwrap()).into(),
+            condition: condition.into(),
+            if_true: if_true.into(),
             if_false: self.expr(pairs.next().unwrap()).into(),
             span,
         })
