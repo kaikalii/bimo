@@ -1,8 +1,17 @@
-use std::{fmt, rc::Rc};
+use std::{cell::RefCell, fmt, rc::Rc};
 
 use pest::Span;
 
-use crate::{ast::Ident, format::FormatSettings};
+use crate::{
+    ast::{Ident, StringPart},
+    format::FormatSettings,
+};
+
+#[derive(Clone)]
+pub struct StringPattern<'i> {
+    pub parts: Vec<StringPart<'i>>,
+    pub resolved: Option<Rc<str>>,
+}
 
 #[derive(Clone)]
 pub enum Pattern<'i> {
@@ -25,7 +34,7 @@ pub enum Pattern<'i> {
         span: Span<'i>,
     },
     String {
-        string: Rc<str>,
+        pattern: RefCell<StringPattern<'i>>,
         span: Span<'i>,
     },
 }

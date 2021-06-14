@@ -3,8 +3,9 @@ use std::{fmt, rc::Rc};
 use itertools::Itertools;
 
 use crate::{
+    ast::StringPart,
     entity::Key,
-    pattern::{FieldPattern, Pattern},
+    pattern::{FieldPattern, Pattern, StringPattern},
     value::Value,
 };
 
@@ -99,7 +100,7 @@ impl<'i, 'r> fmt::Display for Formatter<'r, Pattern<'i>> {
             Pattern::Nil(_) => write!(f, "nil"),
             Pattern::Bool { b, .. } => write!(f, "{}", b),
             Pattern::Int { int, .. } => write!(f, "{}", int),
-            Pattern::String { string, .. } => write!(f, "{}", string),
+            Pattern::String { pattern, .. } => write!(f, "{}", pattern.borrow()),
             Pattern::List { patterns, .. } => {
                 write!(f, "[")?;
                 for (i, pattern) in patterns.iter().enumerate() {
@@ -140,5 +141,22 @@ impl<'i, 'r> fmt::Display for Formatter<'r, FieldPattern<'i>> {
                 write!(f, "{}: {}", field.name, self.settings.format(pattern))
             }
         }
+    }
+}
+
+impl<'i> fmt::Display for StringPattern<'i> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "\"")?;
+        if let Some(s) = &self.resolved {
+            write!(f, "{}", s)?;
+        } else {
+            for part in &self.parts {
+                match part {
+                    StringPart::Raw(s) => write!(f, "{}", s)?,
+                    StringPart::Format(node) => write!(f, "{{{}}}", node.span().as_str())?,
+                }
+            }
+        }
+        write!(f, "\"")
     }
 }

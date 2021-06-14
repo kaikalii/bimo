@@ -249,15 +249,23 @@ impl<'i> Scope<'i> {
                     Value::Bool(false)
                 }
             }
-            Pattern::String { string, span } => {
+            Pattern::String {
+                pattern: string_pattern,
+                span,
+            } => {
+                let string = string_pattern
+                    .borrow()
+                    .resolved
+                    .clone()
+                    .expect("Unresolved string pattern");
                 if let Value::String(s) = val {
-                    if let (Some(value_span), true) = (required, string != s) {
+                    if let (Some(value_span), true) = (required, &string != s) {
                         return Err(RuntimeError::multispan(
                             format!("String value does not match string pattern: {}", pattern),
                             vec![span.clone(), value_span.clone()],
                         ));
                     } else {
-                        Value::Bool(string == s)
+                        Value::Bool(&string == s)
                     }
                 } else if let Some(value_span) = required {
                     return Err(RuntimeError::multispan(
@@ -389,8 +397,41 @@ impl<'i> Runtime<'i> {
             Node::Bind(expr) => self.eval_bind_expr(expr),
         }
     }
+    fn resolve_pattern(&mut self, pattern: &Pattern<'i>) -> RuntimeResult<'i, ()> {
+        match pattern {
+            Pattern::String { pattern, .. } => {
+                let mut pattern = pattern.borrow_mut();
+                if pattern.resolved.is_none() {
+                    let mut s = String::new();
+                    for part in &pattern.parts {
+                        match part {
+                            StringPart::Raw(raw) => s.push_str(raw),
+                            StringPart::Format(node) => {
+                                s.push_str(&self.eval_node(node)?.to_string())
+                            }
+                        }
+                    }
+                    pattern.resolved = Some(s.into());
+                }
+            }
+            Pattern::Entity { patterns, .. } => {
+                for pattern in patterns {
+                    self.resolve_field_pattern(pattern)?;
+                }
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+    fn resolve_field_pattern(&mut self, pattern: &FieldPattern<'i>) -> RuntimeResult<'i, ()> {
+        if let FieldPattern::Pattern { pattern, .. } = pattern {
+            self.resolve_pattern(pattern)?;
+        }
+        Ok(())
+    }
     fn eval_bind_expr(&mut self, expr: &BindExpr<'i>) -> RuntimeResult<'i> {
         let val = self.eval_node(&expr.body)?;
+        self.resolve_pattern(&expr.pattern)?;
         self.scope.bind_pattern(&expr.pattern, &val, None)
     }
     fn eval_if_expr(&mut self, expr: &IfExpr<'i>) -> RuntimeResult<'i> {
@@ -487,7 +528,10 @@ impl<'i> Runtime<'i> {
                 params: closure.params.clone(),
                 body: closure.body.clone().into(),
             }))),
-            Term::Pattern(pattern) => Value::Pattern(pattern.clone()),
+            Term::Pattern(pattern) => {
+                self.resolve_pattern(pattern)?;
+                Value::Pattern(pattern.clone())
+            }
         })
     }
     fn eval_access_expr(&mut self, expr: &AccessExpr<'i>) -> RuntimeResult<'i> {

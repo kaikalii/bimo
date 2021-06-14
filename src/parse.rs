@@ -12,7 +12,7 @@ use pest::{
 use crate::{
     ast::*,
     entity::Key,
-    pattern::{FieldPattern, Pattern},
+    pattern::{FieldPattern, Pattern, StringPattern},
     runtime::Runtime,
 };
 
@@ -295,7 +295,11 @@ impl<'i> ParseState<'i> {
             Rule::string => {
                 let span = pair.as_span();
                 Pattern::String {
-                    string: self.raw_string(pair).into(),
+                    pattern: StringPattern {
+                        parts: self.string(pair),
+                        resolved: None,
+                    }
+                    .into(),
                     span,
                 }
             }
@@ -665,22 +669,6 @@ impl<'i> ParseState<'i> {
             parts.extend(self.quoted_string(pair));
         }
         parts
-    }
-    fn raw_string(&mut self, pair: Pair<'i, Rule>) -> String {
-        let mut s = String::new();
-        let span = pair.as_span();
-        'pair_loop: for pair in pair.into_inner() {
-            for part in self.quoted_string(pair) {
-                match part {
-                    StringPart::Raw(part) => s.push_str(&*part),
-                    StringPart::Format(_) => {
-                        self.errors.push(CheckError::InvalidStringPattern(span));
-                        break 'pair_loop;
-                    }
-                }
-            }
-        }
-        s
     }
     fn quoted_string(&mut self, pair: Pair<'i, Rule>) -> Vec<StringPart<'i>> {
         let mut parts = Vec::new();
