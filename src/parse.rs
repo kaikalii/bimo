@@ -356,6 +356,7 @@ impl<'i> ParseState<'i> {
         match pair.as_rule() {
             Rule::expr_or => self.expr_or(pair),
             Rule::expr_if => self.expr_if(pair),
+            Rule::expr_match => self.expr_match(pair),
             rule => unreachable!("{:?}", rule),
         }
     }
@@ -370,6 +371,26 @@ impl<'i> ParseState<'i> {
             condition: condition.into(),
             if_true: if_true.into(),
             if_false: self.expr(pairs.next().unwrap()).into(),
+            span,
+        })
+    }
+    fn expr_match(&mut self, pair: Pair<'i, Rule>) -> Node<'i> {
+        let span = pair.as_span();
+        let mut pairs = pair.into_inner();
+        let matched = self.expr(pairs.next().unwrap());
+        let mut cases = Vec::new();
+        while let Some(pattern) = pairs.next() {
+            let body = pairs.next().unwrap();
+            self.push_paren_scope();
+            let pattern = self.rebindable_pattern(pattern);
+            self.bind_pattern(&pattern);
+            let body = self.expr(body);
+            cases.push(Case { pattern, body });
+            self.pop_paren_scope();
+        }
+        Node::Match(MatchExpr {
+            matched: matched.into(),
+            cases,
             span,
         })
     }
@@ -424,7 +445,13 @@ impl<'i> ParseState<'i> {
         match first.as_rule() {
             Rule::rebindable_pattern => {
                 let pattern = self.rebindable_pattern(first);
-                let body = self.expr_cmp(pairs.next().unwrap());
+                let body = pairs.next().unwrap();
+                let body = match body.as_rule() {
+                    Rule::expr_cmp => self.expr_cmp(body),
+                    Rule::expr_match => self.expr_match(body),
+                    Rule::expr_if => self.expr_if(body),
+                    rule => unreachable!("{:?}", rule),
+                };
                 self.bind_pattern(&pattern);
                 Node::Bind(BindExpr {
                     pattern,

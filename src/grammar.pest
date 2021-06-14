@@ -3,7 +3,7 @@ ws = { WHITESPACE }
 single_line_comment = @{ "--" ~ (!NEWLINE ~ ANY)* ~ &(NEWLINE | EOI) }
 multi_line_comment = @{ "'''" ~ (!"'''" ~ ANY)* ~ ("'''" | &EOI) }
 COMMENT = _{ multi_line_comment | single_line_comment }
-keyword = { "and" | "or" | "if" | "then" | "else" }
+keyword = { "and" | "or" | "if" | "then" | "else" | "match" }
 
 // Numbers
 int = @{ ("+" | "-")? ~ ASCII_DIGIT+ }
@@ -68,11 +68,12 @@ expr_neg = { op_neg? ~ expr_access }
 expr_mdr = { expr_neg ~ (op_mdr ~ expr_neg)* }
 expr_as = { expr_mdr ~ (op_as ~ expr_mdr)* }
 expr_cmp = { expr_as ~ (op_comp ~ expr_as)* }
-expr_bind = { rebindable_pattern ~ "=" ~ NEWLINE? ~ expr_cmp | expr_cmp }
+expr_bind = { rebindable_pattern ~ "=" ~ NEWLINE? ~ (expr_cmp | expr_match | expr_if) | expr_cmp }
 expr_and = { expr_bind ~ (NEWLINE? ~ op_and ~ NEWLINE? ~ expr_bind)* }
 expr_or = { expr_and ~ (NEWLINE? ~ op_or ~ NEWLINE? ~ expr_and)* }
 expr_if = { "if" ~ expr ~ "then"? ~ NEWLINE? ~ expr ~ NEWLINE? ~ "else" ~ NEWLINE? ~ expr }
-expr = { expr_if | expr_or }
+expr_match = { "match" ~ expr ~ NEWLINE ~ (rebindable_pattern ~ "=>" ~ NEWLINE? ~ expr ~ NEWLINE)+ }
+expr = { expr_if | expr_match | expr_or }
 
 // Patterns
 list_pattern = { "[" ~ (pattern ~ ","?)* ~ "]" }

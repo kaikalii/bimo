@@ -107,6 +107,7 @@ pub enum Node<'i> {
     Call(CallExpr<'i>),
     Access(AccessExpr<'i>),
     If(IfExpr<'i>),
+    Match(MatchExpr<'i>),
     Bind(BindExpr<'i>),
 }
 
@@ -119,6 +120,7 @@ impl<'i> Node<'i> {
             Node::Call(expr) => &expr.span,
             Node::Access(expr) => &expr.span,
             Node::If(expr) => &expr.span,
+            Node::Match(expr) => &expr.span,
             Node::Bind(expr) => &expr.span,
         }
     }
@@ -136,6 +138,19 @@ pub struct IfExpr<'i> {
     pub condition: Box<Node<'i>>,
     pub if_true: Box<Node<'i>>,
     pub if_false: Box<Node<'i>>,
+    pub span: Span<'i>,
+}
+
+#[derive(Debug, Clone)]
+pub struct Case<'i> {
+    pub pattern: Pattern<'i>,
+    pub body: Node<'i>,
+}
+
+#[derive(Debug, Clone)]
+pub struct MatchExpr<'i> {
+    pub matched: Box<Node<'i>>,
+    pub cases: Vec<Case<'i>>,
     pub span: Span<'i>,
 }
 

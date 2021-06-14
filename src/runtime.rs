@@ -419,6 +419,7 @@ impl<'i> Runtime<'i> {
             Node::Call(expr) => self.eval_call(expr),
             Node::Access(expr) => self.eval_access_expr(expr),
             Node::If(expr) => self.eval_if_expr(expr),
+            Node::Match(expr) => self.eval_match_expr(expr),
             Node::Bind(expr) => self.eval_bind_expr(expr),
         }
     }
@@ -474,6 +475,19 @@ impl<'i> Runtime<'i> {
         } else {
             &expr.if_false
         })
+    }
+    fn eval_match_expr(&mut self, expr: &MatchExpr<'i>) -> RuntimeResult<'i> {
+        let matched = self.eval_node(&expr.matched)?;
+        for case in &expr.cases {
+            if self
+                .scope
+                .bind_pattern(&case.pattern, &matched, None)?
+                .is_truthy()
+            {
+                return self.eval_node(&case.body);
+            }
+        }
+        Ok(Value::Nil)
     }
     fn eval_term(&mut self, term: &Term<'i>) -> RuntimeResult<'i> {
         Ok(match term {
