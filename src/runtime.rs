@@ -12,7 +12,7 @@ use crate::{
     ast::*,
     builtin::FUNCTIONS,
     entity::{Entity, Key},
-    format::ValueFormatter,
+    format::{FieldPatternFormatter, PatternFormatter, ValueFormatter},
     num::Num,
     parse::{parse, CheckError, Rule},
     pattern::{FieldPattern, FieldPatternType, Pattern, PatternType},
@@ -275,6 +275,15 @@ impl<'i> Runtime<'i> {
     }
     pub fn format<'r>(&'r self, value: &'r Value<'i>) -> ValueFormatter<'i, 'r> {
         ValueFormatter::new(self, value)
+    }
+    pub fn format_pattern<'r>(&'r self, pattern: &'r Pattern<'i>) -> PatternFormatter<'i, 'r> {
+        PatternFormatter::new(self, pattern)
+    }
+    pub fn format_field_pattern<'r>(
+        &'r self,
+        pattern: &'r FieldPattern<'i>,
+    ) -> FieldPatternFormatter<'i, 'r> {
+        FieldPatternFormatter::new(self, pattern)
     }
     pub fn eval<'r>(&'r mut self, input: &'i str) -> RuntimeResult<'i> {
         let items = parse(self, input)?;

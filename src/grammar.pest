@@ -71,7 +71,8 @@ expr = { expr_if | expr_or }
 
 // Patterns
 list_pattern = { "[" ~ (pattern ~ ","?)* ~ "]" }
-field_pattern = { ident ~ (":" ~ pattern)? }
+field_pattern_type = !{ ident ~ (":" ~ pattern)? }
+field_pattern = ${ "!"? ~ field_pattern_type }
 entity_pattern = { "{" ~ (field_pattern ~ ","?)* ~ "}" }
 pattern_type = !{ ident | int | string | list_pattern | entity_pattern }
 pattern = ${ "!"? ~ pattern_type }

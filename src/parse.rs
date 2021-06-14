@@ -628,7 +628,13 @@ impl<'i> ParseState<'i> {
                 }
                 Term::Entity { entries, default }
             }
-            Rule::pattern_literal => Term::Pattern(self.pattern(only(pair)).into()),
+            Rule::pattern_literal => Term::Pattern(
+                Pattern {
+                    ty: self.pattern_type(only(pair)),
+                    required: false,
+                }
+                .into(),
+            ),
             rule => unreachable!("{:?}", rule),
         };
         Node::Term(term, span)
