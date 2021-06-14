@@ -296,6 +296,7 @@ impl<'i> ParseState<'i> {
                 let span = pair.as_span();
                 Pattern::String {
                     pattern: StringPattern {
+                        is_regex: false,
                         parts: self.string(pair),
                         resolved: None,
                     }
@@ -303,6 +304,7 @@ impl<'i> ParseState<'i> {
                     span,
                 }
             }
+            Rule::regex => self.regex(pair),
             rule => unreachable!("{:?}", rule),
         }
     }
@@ -318,6 +320,18 @@ impl<'i> ParseState<'i> {
             }
         } else {
             FieldPattern::SameName(ident)
+        }
+    }
+    fn regex(&mut self, pair: Pair<'i, Rule>) -> Pattern<'i> {
+        let span = pair.as_span();
+        Pattern::String {
+            pattern: StringPattern {
+                is_regex: false,
+                parts: self.string(pair),
+                resolved: None,
+            }
+            .into(),
+            span,
         }
     }
     fn expr(&mut self, pair: Pair<'i, Rule>) -> Node<'i> {
@@ -624,7 +638,14 @@ impl<'i> ParseState<'i> {
                 }
                 Term::Entity { entries, default }
             }
-            Rule::pattern_literal => Term::Pattern(self.pattern(only(pair)).into()),
+            Rule::pattern_literal => {
+                let pair = only(pair);
+                match pair.as_rule() {
+                    Rule::regex => Term::Pattern(self.regex(pair).into()),
+                    Rule::pattern => Term::Pattern(self.pattern(pair).into()),
+                    rule => unreachable!("{:?}", rule),
+                }
+            }
             rule => unreachable!("{:?}", rule),
         };
         Node::Term(term, span)

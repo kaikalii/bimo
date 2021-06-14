@@ -10,6 +10,7 @@ use crate::{
 
 #[derive(Clone)]
 pub struct StringPattern<'i> {
+    pub is_regex: bool,
     pub parts: Vec<StringPart<'i>>,
     pub resolved: Option<Rc<Regex>>,
 }
