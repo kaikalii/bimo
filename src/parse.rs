@@ -389,7 +389,7 @@ impl<'i> ParseState<'i> {
         match first.as_rule() {
             Rule::pattern => {
                 let pattern = self.pattern(first);
-                let body = self.expr_access(pairs.next().unwrap());
+                let body = self.expr(pairs.next().unwrap());
                 self.bind_pattern(&pattern);
                 Node::Bind(BindExpr {
                     pattern,

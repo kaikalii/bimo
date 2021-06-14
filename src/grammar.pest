@@ -45,7 +45,7 @@ op_neg = { "-" }
 // Terms
 paren_expr = { "(" ~ NEWLINE* ~ items ~ ")" }
 param = { pattern }
-closure_params = { (pattern | "|" ~ (pattern ~ ","?)*) ~ "|" }
+closure_params = { (param | "|" ~ (param ~ ","?)*) ~ "|" }
 closure = { closure_params ~ NEWLINE? ~ expr }
 tag_literal = ${ "#" ~ ident }
 pattern_literal = ${ "?" ~ pattern }
@@ -63,7 +63,7 @@ expr_neg = { op_neg? ~ expr_access }
 expr_mdr = { expr_neg ~ (op_mdr ~ expr_neg)* }
 expr_as = { expr_mdr ~ (op_as ~ expr_mdr)* }
 expr_cmp = { expr_as ~ (op_comp ~ expr_as)* }
-expr_bind = { pattern ~ "=" ~ NEWLINE? ~ expr_access | expr_cmp }
+expr_bind = { pattern ~ "=" ~ NEWLINE? ~ expr | expr_cmp }
 expr_and = { expr_bind ~ (NEWLINE? ~ op_and ~ NEWLINE? ~ expr_bind)* }
 expr_or = { expr_and ~ (NEWLINE? ~ op_or ~ NEWLINE? ~ expr_and)* }
 expr_if = { "if" ~ expr ~ "then"? ~ NEWLINE? ~ expr ~ NEWLINE? ~ "else" ~ NEWLINE? ~ expr }
