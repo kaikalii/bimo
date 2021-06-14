@@ -13,13 +13,14 @@ use once_cell::sync::Lazy;
 use crate::{
     ast::{Ident, Node, Params},
     entity::Entity,
+    format::FormatSettings,
     list::List,
     num::Num,
     pattern::Pattern,
     runtime::{BimoFn, Runtime, Scope},
 };
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub enum Value<'i> {
     Nil,
     Bool(bool),
@@ -84,6 +85,18 @@ impl<'i> PartialEq for Value<'i> {
             (Value::Pattern(a), Value::Pattern(b)) => Rc::ptr_eq(a, b),
             _ => false,
         }
+    }
+}
+
+impl<'i> fmt::Debug for Value<'i> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        FormatSettings::default().format(self).fmt(f)
+    }
+}
+
+impl<'i> fmt::Display for Value<'i> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        FormatSettings::default().format(self).fmt(f)
     }
 }
 

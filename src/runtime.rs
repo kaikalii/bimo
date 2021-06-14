@@ -13,7 +13,6 @@ use crate::{
     ast::*,
     builtin::FUNCTIONS,
     entity::{Entity, Key},
-    format::{FieldPatternFormatter, PatternFormatter, ValueFormatter},
     num::Num,
     parse::{parse, CheckError, Rule},
     pattern::{FieldPattern, FieldPatternType, Pattern, PatternType},
@@ -218,18 +217,6 @@ impl<'i> Runtime<'i> {
             .val(name)
             .unwrap_or_else(|| panic!("Unknown value: {}", name))
     }
-    pub fn format<'r>(&'r self, value: &'r Value<'i>) -> ValueFormatter<'i, 'r> {
-        ValueFormatter::new(self, value)
-    }
-    pub fn format_pattern<'r>(&'r self, pattern: &'r Pattern<'i>) -> PatternFormatter<'i, 'r> {
-        PatternFormatter::new(self, pattern)
-    }
-    pub fn format_field_pattern<'r>(
-        &'r self,
-        pattern: &'r FieldPattern<'i>,
-    ) -> FieldPatternFormatter<'i, 'r> {
-        FieldPatternFormatter::new(self, pattern)
-    }
     pub fn eval<'r>(&'r mut self, input: &'i str) -> RuntimeResult<'i> {
         let items = parse(self, input)?;
         self.eval_items(&items)
@@ -296,11 +283,7 @@ impl<'i> Runtime<'i> {
                 for part in parts {
                     match part {
                         StringPart::Raw(part) => s.push_str(part),
-                        StringPart::Format(node) => {
-                            let val = self.eval_node(node)?;
-                            let formatted = self.format(&val).to_string();
-                            s.push_str(&formatted)
-                        }
+                        StringPart::Format(node) => s.push_str(&self.eval_node(node)?.to_string()),
                     }
                 }
                 Value::String(s.into())
@@ -386,7 +369,7 @@ impl<'i> Runtime<'i> {
             },
             val => {
                 return Err(RuntimeError::new(
-                    format!("{} does not have fields", self.format(&val)),
+                    format!("{} does not have fields", val),
                     expr.span.clone(),
                 ))
             }

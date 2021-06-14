@@ -62,12 +62,12 @@ macro_rules! require_type {
 
 functions!(
     print(msg) = |rt, _| {
-        print!("{}", rt.format(&msg));
+        print!("{}", msg);
         let _ = stdout().flush();
         Ok(Value::Nil)
     },
     println(msg) = |rt, _| {
-        println!("{}", rt.format(&msg));
+        println!("{}", msg);
         Ok(Value::Nil)
     },
     sqrt(n) = |rt, span| {
