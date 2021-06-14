@@ -59,7 +59,7 @@ term = { real | int | closure | ident | tag_literal | string | paren_expr | list
 // Access
 call_args = { "(" ~ NEWLINE? ~ (expr ~ ","? ~ NEWLINE?)* ~ ")" }
 field_access = { NEWLINE? ~ "." ~ ident }
-method_call = { NEWLINE? ~ "." ~ ident ~ call_args }
+method_call = { NEWLINE? ~ ":" ~ ident ~ call_args }
 accessor = { method_call | field_access | call_args }
 
 // Expressions
