@@ -3,7 +3,6 @@ use std::{
     mem::transmute, rc::Rc,
 };
 
-use itertools::Itertools;
 use pest::{
     error::{Error as PestError, ErrorVariant},
     Span,
@@ -13,6 +12,7 @@ use crate::{
     ast::*,
     builtin::FUNCTIONS,
     entity::{Entity, Key},
+    format::ValueFormatter,
     num::Num,
     parse::{parse, CheckError, Rule},
     pattern::{FieldPattern, FieldPatternType, Pattern, PatternType},
@@ -274,10 +274,7 @@ impl<'i> Runtime<'i> {
             .unwrap_or_else(|| panic!("Unknown value: {}", name))
     }
     pub fn format<'r>(&'r self, value: &'r Value<'i>) -> ValueFormatter<'i, 'r> {
-        ValueFormatter {
-            value,
-            runtime: self,
-        }
+        ValueFormatter::new(self, value)
     }
     pub fn eval<'r>(&'r mut self, input: &'i str) -> RuntimeResult<'i> {
         let items = parse(self, input)?;
@@ -609,65 +606,4 @@ fn bin_op_impl<'i>(
             .span(span.clone()))
         }
     })
-}
-
-pub struct ValueFormatter<'i, 'r> {
-    value: &'r Value<'i>,
-    runtime: &'r Runtime<'i>,
-}
-
-impl<'i, 'r> fmt::Debug for ValueFormatter<'i, 'r> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self.value {
-            Value::String(s) => s.fmt(f),
-            _ => write!(f, "{}", self),
-        }
-    }
-}
-
-impl<'i, 'r> fmt::Display for ValueFormatter<'i, 'r> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self.value {
-            Value::Nil => "nil".fmt(f),
-            Value::Bool(b) => b.fmt(f),
-            Value::Num(n) => n.fmt(f),
-            Value::String(s) => s.fmt(f),
-            Value::Tag(ident) => {
-                write!(f, "#{}", ident.name)
-            }
-            Value::List(list) => {
-                write!(f, "[")?;
-                for (i, val) in list.iter().enumerate() {
-                    if i > 0 {
-                        write!(f, ", ")?;
-                    }
-                    write!(f, "{}", self.runtime.format(val))?;
-                }
-                write!(f, "]")
-            }
-            Value::Entity(entity) => {
-                write!(f, "{{")?;
-                for (i, (key, val)) in entity.iter().sorted_by_key(|(key, _)| *key).enumerate() {
-                    if i > 0 {
-                        write!(f, ", ")?;
-                    }
-                    match key {
-                        Key::Field(ident) => {
-                            write!(f, "{}: {:?}", ident.name, self.runtime.format(val))?
-                        }
-                        Key::Tag(ident) => write!(f, "#{}", ident.name)?,
-                        Key::Value(key) => write!(
-                            f,
-                            "{:?} => {:?}",
-                            self.runtime.format(&key),
-                            self.runtime.format(val)
-                        )?,
-                    }
-                }
-                write!(f, "}}")
-            }
-            Value::Function(function) => write!(f, "function({:p})", Rc::as_ptr(function)),
-            Value::Pattern(pattern) => write!(f, "pattern({:p})", Rc::as_ptr(pattern)),
-        }
-    }
 }
