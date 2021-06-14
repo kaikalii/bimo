@@ -22,7 +22,7 @@ use crate::{
 
 pub type BimoFn<'i> = fn(&mut Runtime<'i>, &Span<'i>) -> RuntimeResult<'i>;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct RuntimeError<'i> {
     pub message: String,
     pub spans: Vec<Span<'i>>,

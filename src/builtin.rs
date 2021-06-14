@@ -1,4 +1,10 @@
-use std::io::{stdout, Write};
+use std::{
+    cell::RefCell,
+    collections::HashMap,
+    fs,
+    io::{stdout, Write},
+    path::PathBuf,
+};
 
 use once_cell::sync::Lazy;
 
@@ -6,7 +12,7 @@ use crate::{
     bimo_list,
     list::List,
     num::Num,
-    runtime::RuntimeError,
+    runtime::{RuntimeError, RuntimeResult},
     value::{static_str, RustFunction, Value},
 };
 
@@ -178,5 +184,31 @@ functions!(
     eval(code) = |rt, span| {
         let code = require_type!(code, span, Value::String(s) => s);
         rt.eval(static_str(&code))
+    },
+    mod(path) = |rt, span| {
+        let path = require_type!(path, span, Value::String(s) => PathBuf::from(&*s))
+            .with_extension("bimo");
+        thread_local! {
+            static LOADED_MODULES: RefCell<HashMap<PathBuf, RuntimeResult<'static>>> = HashMap::new().into();
+        }
+        LOADED_MODULES.with(|map| match map.try_borrow_mut() {
+            Ok(mut map) => map
+                .entry(path)
+                .or_insert_with_key(|path| match fs::read_to_string(&path) {
+                    Ok(code) => rt.eval(static_str(&code)),
+                    Err(e) => Err(RuntimeError::new(
+                        format!("Error opening {}: {}", path.to_string_lossy(), e),
+                        span.clone(),
+                    )),
+                })
+                .clone(),
+            Err(_) => Err(RuntimeError::new(
+                format!(
+                    "Circular dependency detected when loading {}",
+                    path.to_string_lossy()
+                ),
+                span.clone(),
+            )),
+        })
     }
 );
