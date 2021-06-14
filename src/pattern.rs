@@ -18,6 +18,11 @@ pub struct StringPattern<'i> {
 #[derive(Clone)]
 pub enum Pattern<'i> {
     Single(Ident<'i>),
+    Bound {
+        left: Box<Pattern<'i>>,
+        right: Box<Pattern<'i>>,
+        span: Span<'i>,
+    },
     List {
         patterns: Vec<Pattern<'i>>,
         span: Span<'i>,
@@ -45,6 +50,7 @@ impl<'i> Pattern<'i> {
     pub fn span(&self) -> &Span<'i> {
         match self {
             Pattern::Single(ident) => &ident.span,
+            Pattern::Bound { span, .. } => span,
             Pattern::List { span, .. } => span,
             Pattern::Entity { span, .. } => span,
             Pattern::Nil(span) => span,

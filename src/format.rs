@@ -97,6 +97,12 @@ impl<'i, 'r> fmt::Display for Formatter<'r, Pattern<'i>> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self.value {
             Pattern::Single(ident) => write!(f, "{}", ident.name),
+            Pattern::Bound { left, right, .. } => write!(
+                f,
+                "{}: {}",
+                self.settings.format(&**left),
+                self.settings.format(&**right)
+            ),
             Pattern::Nil(_) => write!(f, "nil"),
             Pattern::Bool { b, .. } => write!(f, "{}", b),
             Pattern::Int { int, .. } => write!(f, "{}", int),

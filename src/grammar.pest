@@ -49,7 +49,7 @@ op_neg = { "-" }
 
 // Terms
 paren_expr = { "(" ~ NEWLINE* ~ items ~ ")" }
-param = { pattern }
+param = { rebindable_pattern }
 closure_params = { (param | "|" ~ (param ~ ","?)*) ~ "|" }
 closure = { closure_params ~ NEWLINE? ~ expr }
 tag_literal = ${ "#" ~ ident }
@@ -68,7 +68,7 @@ expr_neg = { op_neg? ~ expr_access }
 expr_mdr = { expr_neg ~ (op_mdr ~ expr_neg)* }
 expr_as = { expr_mdr ~ (op_as ~ expr_mdr)* }
 expr_cmp = { expr_as ~ (op_comp ~ expr_as)* }
-expr_bind = { pattern ~ "=" ~ NEWLINE? ~ expr | expr_cmp }
+expr_bind = { rebindable_pattern ~ "=" ~ NEWLINE? ~ expr_cmp | expr_cmp }
 expr_and = { expr_bind ~ (NEWLINE? ~ op_and ~ NEWLINE? ~ expr_bind)* }
 expr_or = { expr_and ~ (NEWLINE? ~ op_or ~ NEWLINE? ~ expr_and)* }
 expr_if = { "if" ~ expr ~ "then"? ~ NEWLINE? ~ expr ~ NEWLINE? ~ "else" ~ NEWLINE? ~ expr }
@@ -80,6 +80,7 @@ field_pattern = !{ ident ~ (":" ~ pattern)? }
 entity_pattern = { "{" ~ (field_pattern ~ ","?)* ~ "}" }
 regex = { "#" ~ either_string }
 pattern = !{ ident | int | string | regex | list_pattern | entity_pattern }
+rebindable_pattern = { pattern ~ (":" ~ pattern)? }
 
 // Items
 function_def = { ident ~ "(" ~ (param ~ ","?)* ~ ")" ~ "=" ~ NEWLINE? ~ expr }

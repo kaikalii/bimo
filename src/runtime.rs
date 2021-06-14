@@ -129,7 +129,11 @@ impl<'i> Scope<'i> {
         Ok(match pattern {
             Pattern::Single(ident) => {
                 self.bind(ident, val.clone());
-                Value::Bool(true)
+                val.clone()
+            }
+            Pattern::Bound { left, right, .. } => {
+                let val = self.bind_pattern(right, &val, required)?;
+                self.bind_pattern(left, &val, required)?
             }
             Pattern::List { patterns, span } => {
                 if let Value::List(list) = val {
@@ -148,7 +152,11 @@ impl<'i> Scope<'i> {
                         bound_all =
                             self.bind_pattern(pattern, val, required)?.is_truthy() && bound_all;
                     }
-                    Value::Bool(bound_all)
+                    if bound_all {
+                        val.clone()
+                    } else {
+                        Value::Nil
+                    }
                 } else if let Some(value_span) = required {
                     return Err(RuntimeError::multispan(
                         format!(
@@ -162,7 +170,7 @@ impl<'i> Scope<'i> {
                     for pattern in patterns {
                         self.bind_pattern(pattern, &Value::Nil, required)?;
                     }
-                    Value::Bool(false)
+                    Value::Nil
                 }
             }
             Pattern::Entity { patterns, span } => {
@@ -174,7 +182,11 @@ impl<'i> Scope<'i> {
                             .is_truthy()
                             && bound_all;
                     }
-                    Value::Bool(bound_all)
+                    if bound_all {
+                        val.clone()
+                    } else {
+                        Value::Nil
+                    }
                 } else if let Some(value_span) = required {
                     return Err(RuntimeError::multispan(
                         format!(
@@ -412,6 +424,10 @@ impl<'i> Runtime<'i> {
     }
     fn resolve_pattern(&mut self, pattern: &Pattern<'i>) -> RuntimeResult<'i, ()> {
         match pattern {
+            Pattern::Bound { left, right, .. } => {
+                self.resolve_pattern(right)?;
+                self.resolve_pattern(left)?;
+            }
             Pattern::String { pattern, span } => {
                 let mut pattern = pattern.borrow_mut();
                 if pattern.resolved.is_none() {

@@ -170,6 +170,7 @@ impl<'i> ParseState<'i> {
     fn bind_pattern(&mut self, pattern: &Pattern<'i>) {
         match pattern {
             Pattern::Single(ident) => self.bind(ident),
+            Pattern::Bound { left, .. } => self.bind_pattern(left),
             Pattern::List { patterns, .. } => {
                 for pattern in patterns {
                     self.bind_pattern(pattern);
@@ -224,7 +225,7 @@ impl<'i> ParseState<'i> {
         Ident { name, span }
     }
     fn bound_param(&mut self, pair: Pair<'i, Rule>) -> Param<'i> {
-        let pattern = self.pattern(only(pair));
+        let pattern = self.rebindable_pattern(only(pair));
         self.bind_pattern(&pattern);
         pattern
     }
@@ -255,6 +256,22 @@ impl<'i> ParseState<'i> {
             params,
             body: body.unwrap(),
         })
+    }
+    fn rebindable_pattern(&mut self, pair: Pair<'i, Rule>) -> Pattern<'i> {
+        let span = pair.as_span();
+        let mut pairs = pair.into_inner();
+        let first = pairs.next().unwrap();
+        let left = self.pattern(first);
+        if let Some(second) = pairs.next() {
+            let right = self.pattern(second);
+            Pattern::Bound {
+                left: left.into(),
+                right: right.into(),
+                span,
+            }
+        } else {
+            left
+        }
     }
     fn pattern(&mut self, pair: Pair<'i, Rule>) -> Pattern<'i> {
         let pair = only(pair);
@@ -405,9 +422,9 @@ impl<'i> ParseState<'i> {
         let mut pairs = pair.into_inner();
         let first = pairs.next().unwrap();
         match first.as_rule() {
-            Rule::pattern => {
-                let pattern = self.pattern(first);
-                let body = self.expr(pairs.next().unwrap());
+            Rule::rebindable_pattern => {
+                let pattern = self.rebindable_pattern(first);
+                let body = self.expr_cmp(pairs.next().unwrap());
                 self.bind_pattern(&pattern);
                 Node::Bind(BindExpr {
                     pattern,
