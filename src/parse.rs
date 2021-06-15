@@ -265,6 +265,7 @@ impl<'i> ParseState<'i> {
             }
         }
         self.pop_function_scope();
+        self.bind(&ident);
         FunctionDef {
             ident,
             params,
