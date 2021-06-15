@@ -35,9 +35,10 @@ starts_with_keyword = @{ keyword ~ ("_"* ~ ident_tail+)+ }
 ident = { !keyword ~ ident_inner | starts_with_keyword | "_" }
 
 // Container literals
-list_literal = { "[" ~ (expr ~ ","?)* ~ "]" }
-entity_item = { tag_literal | expr ~ "=>" ~ expr | ident ~ (":" ~ expr)? }
-entity_literal = { "{" ~ NEWLINE? ~ (entity_item ~ ","? ~ NEWLINE?)* ~ (".." ~ expr)? ~ "}" }
+list_literal = { "[" ~ (expr ~ ",")* ~ expr? ~ "]" }
+entity_default = { ".." ~ expr }
+entity_item = { tag_literal | expr ~ "=>" ~ expr | ident ~ (":" ~ expr)? | entity_default }
+entity_literal = { "{" ~ NEWLINE? ~ (entity_item ~ "," ~ NEWLINE?)* ~ (entity_item ~ NEWLINE?)? ~ "}" }
 
 // Operators
 op_as = { "+" | "-" }
@@ -50,14 +51,14 @@ op_neg = { "-" }
 // Terms
 paren_expr = { "(" ~ NEWLINE* ~ items ~ ")" }
 param = { rebindable_pattern }
-closure_params = { (param | "|" ~ (param ~ ","?)*) ~ "|" }
+closure_params = { (param | "|" ~ (param ~ ",")* ~ param?) ~ "|" }
 closure = { closure_params ~ NEWLINE? ~ expr }
 tag_literal = ${ "#" ~ ident }
 pattern_literal = ${ "?" ~ pattern | regex }
 term = { real | int | closure | ident | tag_literal | string | paren_expr | list_literal | entity_literal | pattern_literal }
 
 // Access
-call_args = { "(" ~ NEWLINE? ~ (expr ~ ","? ~ NEWLINE?)* ~ ")" }
+call_args = { "(" ~ NEWLINE? ~ (expr ~ "," ~ NEWLINE?)* ~ (expr ~ NEWLINE?)? ~ ")" }
 field_access = { NEWLINE? ~ "." ~ ident }
 method_call = { NEWLINE? ~ ":" ~ ident ~ call_args }
 accessor = { method_call | field_access | call_args }
@@ -84,7 +85,7 @@ pattern = !{ ident | int | string | regex | list_pattern | entity_pattern }
 rebindable_pattern = { pattern ~ (":" ~ pattern)? }
 
 // Items
-function_def = { ident ~ "(" ~ (param ~ ","?)* ~ ")" ~ "=" ~ NEWLINE? ~ expr }
+function_def = { ident ~ "(" ~ (param ~ ",")* ~ param? ~ ")" ~ "=" ~ NEWLINE? ~ expr }
 item = { function_def | expr }
 items = { (item ~ NEWLINE*)* }
 file = { SOI ~ NEWLINE* ~ items ~ EOI }

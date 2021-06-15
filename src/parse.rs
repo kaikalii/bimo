@@ -26,6 +26,7 @@ pub enum CheckError<'i> {
     ForbiddenRedefinition(Ident<'i>),
     LastItemNotExpression(Span<'i>),
     InvalidStringPattern(Span<'i>),
+    EntityDefaultNotAtEnd(Span<'i>),
 }
 
 impl<'i> fmt::Display for CheckError<'i> {
@@ -56,6 +57,9 @@ impl<'i> fmt::Display for CheckError<'i> {
             ),
             CheckError::InvalidStringPattern(span) => {
                 format_span("Invalid string pattern", span.clone(), f)
+            }
+            CheckError::EntityDefaultNotAtEnd(span) => {
+                format_span("Entity default must be at the end", span.clone(), f)
             }
         }
     }
@@ -663,8 +667,12 @@ impl<'i> ParseState<'i> {
             }
             Rule::entity_literal => {
                 let mut entries = Vec::new();
-                let mut default = None;
+                let mut default: Option<Box<Node>> = None;
                 for pair in pair.into_inner() {
+                    if let Some(default) = &default {
+                        self.errors
+                            .push(CheckError::EntityDefaultNotAtEnd(default.span().clone()));
+                    }
                     match pair.as_rule() {
                         Rule::entity_item => {
                             let mut pairs = pair.into_inner();
@@ -688,10 +696,12 @@ impl<'i> ParseState<'i> {
                                     let value = self.expr(pairs.next().unwrap());
                                     entries.push(Entry::Index(key, value));
                                 }
+                                Rule::entity_default => {
+                                    default = Some(self.expr(only(first)).into());
+                                }
                                 rule => unreachable!("{:?}", rule),
                             }
                         }
-                        Rule::expr => default = Some(Box::new(self.expr(pair))),
                         rule => unreachable!("{:?}", rule),
                     }
                 }
