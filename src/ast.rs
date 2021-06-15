@@ -26,6 +26,9 @@ impl<'i> FileSpan<'i> {
         };
         FileSpan { span, file }
     }
+    pub fn as_str(&self) -> &'i str {
+        self.span.as_str()
+    }
 }
 
 #[derive(Clone)]

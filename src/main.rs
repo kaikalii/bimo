@@ -2,6 +2,7 @@ mod ast;
 mod builtin;
 mod entity;
 mod fmt;
+mod formatter;
 mod list;
 mod num;
 mod parse;
@@ -46,8 +47,17 @@ fn main() {
     let input = std::fs::read_to_string(&main_path).unwrap();
 
     let mut runtime = Runtime::new();
-
-    if app.check {
+    if let Some(sub) = app.sub {
+        match sub {
+            Sub::Fmt => match runtime.parse(&input, &main_path) {
+                Ok(items) => {}
+                Err(e) => {
+                    println!("{}", e);
+                    exit(1);
+                }
+            },
+        }
+    } else if app.check {
         if let Err(errors) = runtime.check(&input, main_path) {
             for error in errors {
                 println!("{}", error)
@@ -72,4 +82,11 @@ struct App {
     target: Option<PathBuf>,
     #[clap(short, long, about = "Check code validity without running")]
     check: bool,
+    #[clap(subcommand)]
+    sub: Option<Sub>,
+}
+
+#[derive(Clap)]
+enum Sub {
+    Fmt,
 }

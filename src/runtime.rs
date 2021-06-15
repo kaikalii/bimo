@@ -424,14 +424,21 @@ impl<'i> Runtime<'i> {
     pub fn curr_file(&self) -> Rc<OsStr> {
         self.file_stack.last().unwrap().clone()
     }
-    pub fn eval<'r>(&'r mut self, input: &'i str, file: impl AsRef<OsStr>) -> RuntimeResult<'i> {
+    pub(crate) fn parse(
+        &mut self,
+        input: &'i str,
+        file: impl AsRef<OsStr>,
+    ) -> RuntimeResult<'i, Items<'i>> {
+        self.in_file(file, |rt| Ok(parse(rt, input, rt.curr_file())?))
+    }
+    pub fn eval(&mut self, input: &'i str, file: impl AsRef<OsStr>) -> RuntimeResult<'i> {
         self.in_file(file, |rt| {
             let items = parse(rt, input, rt.curr_file())?;
             rt.eval_items(&items)
         })
     }
-    pub fn check<'r>(
-        &'r mut self,
+    pub fn check(
+        &mut self,
         input: &'i str,
         file: impl AsRef<OsStr>,
     ) -> Result<(), Vec<CheckError<'i>>> {
