@@ -6,6 +6,8 @@ use regex::Regex;
 use crate::{
     ast::{Ident, StringPart},
     format::FormatSettings,
+    runtime::RuntimeResult,
+    value::Value,
 };
 
 #[derive(Clone)]
@@ -45,19 +47,20 @@ pub enum Pattern<'i> {
         pattern: RefCell<StringPattern<'i>>,
         span: Span<'i>,
     },
+    Builtin {
+        f: Rc<dyn Fn(&Value<'i>) -> RuntimeResult<'i>>,
+        name: String,
+    },
 }
 
 impl<'i> Pattern<'i> {
-    pub fn span(&self) -> &Span<'i> {
-        match self {
-            Pattern::Single(ident) | Pattern::Value(ident) => &ident.span,
-            Pattern::Bound { span, .. } => span,
-            Pattern::List { span, .. } => span,
-            Pattern::Entity { span, .. } => span,
-            Pattern::Nil(span) => span,
-            Pattern::Bool { span, .. } => span,
-            Pattern::Int { span, .. } => span,
-            Pattern::String { span, .. } => span,
+    pub fn builtin(
+        name: impl Into<String>,
+        f: impl Fn(&Value<'i>) -> RuntimeResult<'i> + 'static,
+    ) -> Self {
+        Pattern::Builtin {
+            name: name.into(),
+            f: Rc::new(f),
         }
     }
 }

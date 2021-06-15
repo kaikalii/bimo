@@ -98,6 +98,11 @@ pub(crate) fn parse<'i>(
             for (name, _) in &*crate::builtin::FUNCTIONS {
                 state.bind(&Ident::unspanned(*name));
             }
+            crate::builtin::PATTERNS.with(|patterns| {
+                for (name, _) in patterns {
+                    state.bind(&Ident::unspanned(*name));
+                }
+            });
             let items = state.items(only(pairs.next().unwrap()));
             if state.errors.is_empty() {
                 Ok(items)
@@ -188,7 +193,8 @@ impl<'i> ParseState<'i> {
             Pattern::Nil(_)
             | Pattern::Bool { .. }
             | Pattern::Int { .. }
-            | Pattern::String { .. } => {}
+            | Pattern::String { .. }
+            | Pattern::Builtin { .. } => {}
         }
     }
     fn items(&mut self, pair: Pair<'i, Rule>) -> Items<'i> {

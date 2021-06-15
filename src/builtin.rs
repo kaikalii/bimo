@@ -4,6 +4,7 @@ use std::{
     fs,
     io::{stdout, Write},
     path::PathBuf,
+    rc::Rc,
 };
 
 use once_cell::sync::Lazy;
@@ -12,6 +13,7 @@ use crate::{
     bimo_list,
     list::List,
     num::Num,
+    pattern::Pattern,
     runtime::{RuntimeError, RuntimeResult},
     value::{static_str, RustFunction, Value},
 };
@@ -211,4 +213,50 @@ functions!(
             )),
         })
     }
+);
+
+macro_rules! patterns {
+    ($(($name:literal, $f:expr)),* $(,)?) => {
+        thread_local! {
+            pub static PATTERNS: Vec<(&'static str, Rc<Pattern<'static>>)> = vec![$(($name, Rc::new(Pattern::builtin($name, $f)))),*];
+        }
+    }
+}
+
+patterns!(
+    ("int", |val| {
+        Ok(if let Value::Num(num) = val {
+            Value::Num(num.to_i64().into())
+        } else {
+            Value::Nil
+        })
+    }),
+    ("num", |val| {
+        Ok(if let Value::Num(_) = val {
+            val.clone()
+        } else {
+            Value::Nil
+        })
+    }),
+    ("bool", |val| {
+        Ok(if let Value::Bool(_) = val {
+            val.clone()
+        } else {
+            Value::Nil
+        })
+    }),
+    ("string", |val| {
+        Ok(if let Value::String(_) = val {
+            val.clone()
+        } else {
+            Value::Nil
+        })
+    }),
+    ("fn", |val| {
+        Ok(if let Value::Function(_) = val {
+            val.clone()
+        } else {
+            Value::Nil
+        })
+    }),
 );

@@ -1,6 +1,5 @@
 # TODO
 
-- Add type patterns
 - Add elipses patterns to lists
 - Add optional pattern
 - Add early returns

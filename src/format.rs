@@ -127,6 +127,9 @@ impl<'i, 'r> fmt::Display for Formatter<'r, Pattern<'i>> {
                 }
                 write!(f, "}}")
             }
+            Pattern::Builtin { name, .. } => {
+                write!(f, "{}", name)
+            }
         }
     }
 }

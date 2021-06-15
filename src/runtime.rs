@@ -12,7 +12,7 @@ use regex::Regex;
 
 use crate::{
     ast::*,
-    builtin::FUNCTIONS,
+    builtin::{FUNCTIONS, PATTERNS},
     entity::{Entity, Key},
     num::Num,
     parse::{parse, CheckError, Rule},
@@ -318,6 +318,18 @@ impl<'i> Scope<'i> {
                     Value::Nil
                 }
             }
+            Pattern::Builtin { f, name } => {
+                let bound = f(val)?;
+                if let Some(value_span) = required {
+                    if !bound.is_truthy() {
+                        return Err(RuntimeError::new(
+                            format!("{} does not match pattern: {}", val.type_name(), name),
+                            value_span.clone(),
+                        ));
+                    }
+                }
+                bound
+            }
         })
     }
     fn bind_field_pattern(
@@ -382,6 +394,13 @@ impl<'i> Runtime<'i> {
                                 ))
                             })
                         })
+                        .chain(PATTERNS.with(|patterns| patterns.clone()).into_iter().map(
+                            |(name, pattern)| {
+                                (name, unsafe {
+                                    transmute::<_, Value<'i>>(Value::Pattern(pattern.clone()))
+                                })
+                            },
+                        ))
                         .collect(),
                 )),
             },
