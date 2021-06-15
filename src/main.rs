@@ -1,7 +1,7 @@
 mod ast;
 mod builtin;
 mod entity;
-mod format;
+mod fmt;
 mod list;
 mod num;
 mod parse;

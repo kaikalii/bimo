@@ -13,7 +13,7 @@ use once_cell::sync::Lazy;
 use crate::{
     ast::{Ident, Node, Params},
     entity::Entity,
-    format::FormatSettings,
+    fmt::FormatSettings,
     list::List,
     num::Num,
     pattern::Pattern,

@@ -4,7 +4,7 @@ use regex::Regex;
 
 use crate::{
     ast::{FileSpan, Ident, StringPart},
-    format::FormatSettings,
+    fmt::FormatSettings,
     runtime::RuntimeResult,
     value::Value,
 };
