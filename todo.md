@@ -1,5 +1,7 @@
 # TODO
 
+- Add short names for values
+- Color error output
 - Add elipses patterns to lists
 - Add optional pattern
 - Add early returns

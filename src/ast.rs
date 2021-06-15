@@ -17,9 +17,13 @@ pub struct FileSpan<'i> {
 }
 
 impl<'i> FileSpan<'i> {
-    pub fn new(span: Span<'i>, file: impl Into<Rc<OsStr>>) -> Self {
-        let file = file.into();
-        let file = if file.is_empty() { None } else { Some(file) };
+    pub fn new(span: Span<'i>, file: impl AsRef<OsStr>) -> Self {
+        let file = file.as_ref();
+        let file = if file.is_empty() {
+            None
+        } else {
+            Some(file.into())
+        };
         FileSpan { span, file }
     }
 }
@@ -27,17 +31,17 @@ impl<'i> FileSpan<'i> {
 #[derive(Clone)]
 pub struct Ident<'i> {
     pub name: &'i str,
-    pub span: Span<'i>,
+    pub span: FileSpan<'i>,
 }
 
 impl<'i> Ident<'i> {
-    pub fn new(name: &'i str, span: Span<'i>) -> Self {
+    pub fn new(name: &'i str, span: FileSpan<'i>) -> Self {
         Ident { name, span }
     }
     pub fn unspanned(name: &'i str) -> Self {
         Ident {
             name,
-            span: Span::new("", 0, 0).unwrap(),
+            span: FileSpan::new(Span::new("", 0, 0).unwrap(), ""),
         }
     }
     pub fn is_underscore(&self) -> bool {
@@ -92,7 +96,7 @@ pub enum Item<'i> {
 }
 
 impl<'i> Item<'i> {
-    pub fn span(&self) -> &Span<'i> {
+    pub fn span(&self) -> &FileSpan<'i> {
         match self {
             Item::Node(node) => node.span(),
             Item::FunctionDef(def) => &def.ident.span,
@@ -114,7 +118,7 @@ pub struct FunctionDef<'i> {
 
 #[derive(Debug, Clone)]
 pub enum Node<'i> {
-    Term(Term<'i>, Span<'i>),
+    Term(Term<'i>, FileSpan<'i>),
     BinExpr(BinExpr<'i>),
     UnExpr(UnExpr<'i>),
     Call(CallExpr<'i>),
@@ -125,7 +129,7 @@ pub enum Node<'i> {
 }
 
 impl<'i> Node<'i> {
-    pub fn span(&self) -> &Span<'i> {
+    pub fn span(&self) -> &FileSpan<'i> {
         match self {
             Node::Term(_, span) => span,
             Node::BinExpr(expr) => &expr.span,
@@ -143,7 +147,7 @@ impl<'i> Node<'i> {
 pub struct BindExpr<'i> {
     pub pattern: Pattern<'i>,
     pub body: Box<Node<'i>>,
-    pub span: Span<'i>,
+    pub span: FileSpan<'i>,
 }
 
 #[derive(Debug, Clone)]
@@ -151,7 +155,7 @@ pub struct IfExpr<'i> {
     pub condition: Box<Node<'i>>,
     pub if_true: Box<Node<'i>>,
     pub if_false: Box<Node<'i>>,
-    pub span: Span<'i>,
+    pub span: FileSpan<'i>,
 }
 
 #[derive(Debug, Clone)]
@@ -164,7 +168,7 @@ pub struct Case<'i> {
 pub struct MatchExpr<'i> {
     pub matched: Box<Node<'i>>,
     pub cases: Vec<Case<'i>>,
-    pub span: Span<'i>,
+    pub span: FileSpan<'i>,
 }
 
 #[derive(Debug, Clone)]
@@ -172,8 +176,8 @@ pub struct BinExpr<'i> {
     pub left: Box<Node<'i>>,
     pub right: Box<Node<'i>>,
     pub op: BinOp,
-    pub span: Span<'i>,
-    pub op_span: Span<'i>,
+    pub span: FileSpan<'i>,
+    pub op_span: FileSpan<'i>,
 }
 
 impl<'i> BinExpr<'i> {
@@ -181,8 +185,8 @@ impl<'i> BinExpr<'i> {
         left: Node<'i>,
         right: Node<'i>,
         op: BinOp,
-        span: Span<'i>,
-        op_span: Span<'i>,
+        span: FileSpan<'i>,
+        op_span: FileSpan<'i>,
     ) -> Self {
         BinExpr {
             left: left.into(),
@@ -215,11 +219,11 @@ pub enum BinOp {
 pub struct UnExpr<'i> {
     pub inner: Box<Node<'i>>,
     pub op: UnOp,
-    pub span: Span<'i>,
+    pub span: FileSpan<'i>,
 }
 
 impl<'i> UnExpr<'i> {
-    pub fn new(inner: Node<'i>, op: UnOp, span: Span<'i>) -> Self {
+    pub fn new(inner: Node<'i>, op: UnOp, span: FileSpan<'i>) -> Self {
         UnExpr {
             inner: inner.into(),
             op,
@@ -237,7 +241,7 @@ pub enum UnOp {
 pub struct CallExpr<'i> {
     pub caller: Box<Node<'i>>,
     pub args: Vec<Node<'i>>,
-    pub span: Span<'i>,
+    pub span: FileSpan<'i>,
 }
 
 #[derive(Debug, Clone)]
@@ -249,7 +253,7 @@ pub enum Accessor<'i> {
 pub struct AccessExpr<'i> {
     pub root: Box<Node<'i>>,
     pub accessor: Accessor<'i>,
-    pub span: Span<'i>,
+    pub span: FileSpan<'i>,
 }
 
 #[derive(Debug, Clone)]
@@ -288,7 +292,7 @@ pub enum StringPart<'i> {
 
 #[derive(Debug, Clone)]
 pub struct Closure<'i> {
-    pub span: Span<'i>,
+    pub span: FileSpan<'i>,
     pub params: Params<'i>,
     pub body: Node<'i>,
 }

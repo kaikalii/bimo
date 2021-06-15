@@ -4,10 +4,6 @@ use std::{
 };
 
 use itertools::Itertools;
-use pest::{
-    error::{Error as PestError, ErrorVariant},
-    Span,
-};
 use regex::Regex;
 
 use crate::{
@@ -15,26 +11,26 @@ use crate::{
     builtin::{FUNCTIONS, PATTERNS},
     entity::{Entity, Key},
     num::Num,
-    parse::{parse, CheckError, Rule},
+    parse::{format_span, parse, CheckError},
     pattern::{FieldPattern, Pattern},
     value::*,
 };
 
-pub type BimoFn<'i> = fn(&mut Runtime<'i>, &Span<'i>) -> RuntimeResult<'i>;
+pub type BimoFn<'i> = fn(&mut Runtime<'i>, &FileSpan<'i>) -> RuntimeResult<'i>;
 
 #[derive(Debug, Clone)]
 pub struct RuntimeError<'i> {
     pub message: String,
-    pub spans: Vec<Span<'i>>,
+    pub spans: Vec<FileSpan<'i>>,
 }
 
 impl<'i> RuntimeError<'i> {
-    pub fn new(message: impl Into<String>, span: Span<'i>) -> Self {
+    pub fn new(message: impl Into<String>, span: FileSpan<'i>) -> Self {
         RuntimeError::multispan(message, Some(span))
     }
     pub fn multispan(
         message: impl Into<String>,
-        spans: impl IntoIterator<Item = Span<'i>>,
+        spans: impl IntoIterator<Item = FileSpan<'i>>,
     ) -> Self {
         RuntimeError {
             message: message.into(),
@@ -56,16 +52,7 @@ impl<'i> fmt::Display for RuntimeError<'i> {
                 if i > 0 {
                     writeln!(f)?;
                 }
-                write!(
-                    f,
-                    "{}",
-                    PestError::<Rule>::new_from_span(
-                        ErrorVariant::CustomError {
-                            message: message.take().cloned().unwrap_or_default()
-                        },
-                        span.clone()
-                    )
-                )?
+                format_span(message.take().cloned().unwrap_or_default(), span, f)?;
             }
             Ok(())
         }
@@ -140,7 +127,7 @@ impl<'i> Scope<'i> {
         &mut self,
         pattern: &Pattern<'i>,
         val: &Value<'i>,
-        required: Option<&Span<'i>>,
+        required: Option<&FileSpan<'i>>,
     ) -> RuntimeResult<'i> {
         Ok(match pattern {
             Pattern::Single(ident) => {
@@ -343,7 +330,7 @@ impl<'i> Scope<'i> {
         &mut self,
         pattern: &FieldPattern<'i>,
         source: Option<&Entity<'i>>,
-        required: Option<&Span<'i>>,
+        required: Option<&FileSpan<'i>>,
     ) -> RuntimeResult<'i> {
         Ok(match pattern {
             FieldPattern::SameName(field) => {
@@ -434,12 +421,12 @@ impl<'i> Runtime<'i> {
         }
         res
     }
-    pub fn span(&self, span: Span<'i>) -> FileSpan<'i> {
-        FileSpan::new(span, self.file_stack.last().unwrap().clone())
+    pub fn curr_file(&self) -> Rc<OsStr> {
+        self.file_stack.last().unwrap().clone()
     }
     pub fn eval<'r>(&'r mut self, input: &'i str, file: impl AsRef<OsStr>) -> RuntimeResult<'i> {
         self.in_file(file, |rt| {
-            let items = parse(rt, input)?;
+            let items = parse(rt, input, rt.curr_file())?;
             rt.eval_items(&items)
         })
     }
@@ -448,7 +435,7 @@ impl<'i> Runtime<'i> {
         input: &'i str,
         file: impl AsRef<OsStr>,
     ) -> Result<(), Vec<CheckError<'i>>> {
-        self.in_file(file, |rt| parse(rt, input))?;
+        self.in_file(file, |rt| parse(rt, input, rt.curr_file()))?;
         Ok(())
     }
     fn eval_items(&mut self, items: &[Item<'i>]) -> RuntimeResult<'i> {
@@ -698,7 +685,12 @@ impl<'i> Runtime<'i> {
             },
         })
     }
-    pub fn call<A>(&mut self, caller: &Value<'i>, args: &[A], span: &Span<'i>) -> RuntimeResult<'i>
+    pub fn call<A>(
+        &mut self,
+        caller: &Value<'i>,
+        args: &[A],
+        span: &FileSpan<'i>,
+    ) -> RuntimeResult<'i>
     where
         A: Arg<'i>,
     {
@@ -806,14 +798,14 @@ where
 
 pub trait Arg<'i> {
     fn eval(&self, runtime: &mut Runtime<'i>) -> RuntimeResult<'i>;
-    fn span(&self) -> Option<&Span<'i>>;
+    fn span(&self) -> Option<&FileSpan<'i>>;
 }
 
 impl<'i> Arg<'i> for Value<'i> {
     fn eval(&self, _: &mut Runtime<'i>) -> RuntimeResult<'i> {
         Ok(self.clone())
     }
-    fn span(&self) -> Option<&Span<'i>> {
+    fn span(&self) -> Option<&FileSpan<'i>> {
         None
     }
 }
@@ -822,7 +814,7 @@ impl<'i> Arg<'i> for Node<'i> {
     fn eval(&self, runtime: &mut Runtime<'i>) -> RuntimeResult<'i> {
         runtime.eval_node(self)
     }
-    fn span(&self) -> Option<&Span<'i>> {
+    fn span(&self) -> Option<&FileSpan<'i>> {
         Some(self.span())
     }
 }
@@ -833,7 +825,7 @@ fn bin_op_impl<'i>(
     op: BinOp,
     left: Value<'i>,
     right: Value<'i>,
-    span: &Span<'i>,
+    span: &FileSpan<'i>,
     f: BinFn<'i>,
 ) -> RuntimeResult<'i> {
     Ok(match (left, right) {

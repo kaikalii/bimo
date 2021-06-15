@@ -1,10 +1,9 @@
 use std::{cell::RefCell, fmt, rc::Rc};
 
-use pest::Span;
 use regex::Regex;
 
 use crate::{
-    ast::{Ident, StringPart},
+    ast::{FileSpan, Ident, StringPart},
     format::FormatSettings,
     runtime::RuntimeResult,
     value::Value,
@@ -23,29 +22,29 @@ pub enum Pattern<'i> {
     Bound {
         left: Box<Pattern<'i>>,
         right: Box<Pattern<'i>>,
-        span: Span<'i>,
+        span: FileSpan<'i>,
     },
     Value(Ident<'i>),
     List {
         patterns: Vec<Pattern<'i>>,
-        span: Span<'i>,
+        span: FileSpan<'i>,
     },
     Entity {
         patterns: Vec<FieldPattern<'i>>,
-        span: Span<'i>,
+        span: FileSpan<'i>,
     },
-    Nil(Span<'i>),
+    Nil(FileSpan<'i>),
     Bool {
         b: bool,
-        span: Span<'i>,
+        span: FileSpan<'i>,
     },
     Int {
         int: i64,
-        span: Span<'i>,
+        span: FileSpan<'i>,
     },
     String {
         pattern: RefCell<StringPattern<'i>>,
-        span: Span<'i>,
+        span: FileSpan<'i>,
     },
     Builtin {
         f: Rc<dyn Fn(&Value<'i>) -> RuntimeResult<'i>>,
@@ -71,7 +70,7 @@ pub enum FieldPattern<'i> {
     Pattern {
         field: Ident<'i>,
         pattern: Pattern<'i>,
-        span: Span<'i>,
+        span: FileSpan<'i>,
     },
 }
 

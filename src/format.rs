@@ -160,7 +160,7 @@ impl<'i> fmt::Display for StringPattern<'i> {
             for part in &self.parts {
                 match part {
                     StringPart::Raw(s) => write!(f, "{}", s)?,
-                    StringPart::Format(node) => write!(f, "{{{}}}", node.span().as_str())?,
+                    StringPart::Format(node) => write!(f, "{{{}}}", node.span().span.as_str())?,
                 }
             }
         }
