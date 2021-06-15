@@ -582,7 +582,7 @@ impl<'i> ParseState<'i> {
                     let ident = self.ident(only(pair));
                     root = Node::Access(AccessExpr {
                         root: root.into(),
-                        accessor: Accessor::Key(Key::Field(ident)),
+                        accessor: Accessor::Key(Key::Field(ident.name)),
                         span,
                     })
                 }

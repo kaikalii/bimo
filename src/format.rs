@@ -67,10 +67,8 @@ impl<'i, 'r> fmt::Display for Formatter<'r, Value<'i>> {
                         write!(f, ", ")?;
                     }
                     match key {
-                        Key::Field(ident) => {
-                            write!(f, "{}: {:?}", ident.name, self.settings.format(val))?
-                        }
-                        Key::Tag(ident) => write!(f, "#{}", ident.name)?,
+                        Key::Field(name) => write!(f, "{}: {:?}", name, self.settings.format(val))?,
+                        Key::Tag(name) => write!(f, "#{}", name)?,
                         Key::Value(key) => write!(
                             f,
                             "{:?} => {:?}",

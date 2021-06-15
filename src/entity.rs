@@ -7,7 +7,7 @@ use std::{
 
 use seahash::SeaHasher;
 
-use crate::{ast::Ident, value::Value};
+use crate::value::Value;
 
 #[derive(Clone, Default)]
 pub struct HashState;
@@ -21,8 +21,8 @@ impl BuildHasher for HashState {
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Key<'i> {
-    Tag(Ident<'i>),
-    Field(Ident<'i>),
+    Tag(&'i str),
+    Field(&'i str),
     Value(Value<'i>),
 }
 
