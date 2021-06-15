@@ -222,7 +222,7 @@ impl<'i> ParseState<'i> {
         let pair = only(pair);
         match pair.as_rule() {
             Rule::expr => Item::Node(self.expr(pair)),
-            Rule::function_def => self.function_def(pair),
+            Rule::function_def => Item::FunctionDef(self.function_def(pair)),
             rule => unreachable!("{:?}", rule),
         }
     }
@@ -240,33 +240,36 @@ impl<'i> ParseState<'i> {
         self.bind_pattern(&pattern);
         pattern
     }
-    fn function_def(&mut self, pair: Pair<'i, Rule>) -> Item<'i> {
+    fn function_def(&mut self, pair: Pair<'i, Rule>) -> FunctionDef<'i> {
         let mut pairs = pair.into_inner();
         let ident = self.ident(pairs.next().unwrap());
         if ident.is_underscore() {
             self.errors
                 .push(CheckError::FunctionNamedUnderscore(ident.span.clone()));
         }
-        self.bind(&ident);
-        self.push_function_scope();
         let mut params = Vec::new();
         let mut body = None;
+        self.push_function_scope();
         for pair in pairs {
             match pair.as_rule() {
                 Rule::param => {
                     let param = self.bound_param(pair);
                     params.push(param)
                 }
-                Rule::expr => body = Some(self.expr(pair)),
+                Rule::expr => {
+                    self.bind(&ident);
+                    body = Some(self.expr(pair));
+                    break;
+                }
                 rule => unreachable!("{:?}", rule),
             }
         }
         self.pop_function_scope();
-        Item::FunctionDef(FunctionDef {
+        FunctionDef {
             ident,
             params,
             body: body.unwrap(),
-        })
+        }
     }
     fn rebindable_pattern(&mut self, pair: Pair<'i, Rule>) -> Pattern<'i> {
         let span = pair.as_span();
@@ -458,28 +461,30 @@ impl<'i> ParseState<'i> {
         left
     }
     fn expr_bind(&mut self, pair: Pair<'i, Rule>) -> Node<'i> {
+        let pair = only(pair);
+        match pair.as_rule() {
+            Rule::binding => Node::Bind(self.binding(pair)),
+            Rule::expr_cmp => self.expr_cmp(pair),
+            rule => unreachable!("{:?}", rule),
+        }
+    }
+    fn binding(&mut self, pair: Pair<'i, Rule>) -> BindExpr<'i> {
         let span = pair.as_span();
         let mut pairs = pair.into_inner();
         let first = pairs.next().unwrap();
-        match first.as_rule() {
-            Rule::rebindable_pattern => {
-                let pattern = self.rebindable_pattern(first);
-                let body = pairs.next().unwrap();
-                let body = match body.as_rule() {
-                    Rule::expr_cmp => self.expr_cmp(body),
-                    Rule::expr_match => self.expr_match(body),
-                    Rule::expr_if => self.expr_if(body),
-                    rule => unreachable!("{:?}", rule),
-                };
-                self.bind_pattern(&pattern);
-                Node::Bind(BindExpr {
-                    pattern,
-                    body: body.into(),
-                    span,
-                })
-            }
-            Rule::expr_cmp => self.expr_cmp(first),
+        let pattern = self.rebindable_pattern(first);
+        let body = pairs.next().unwrap();
+        let body = match body.as_rule() {
+            Rule::expr_cmp => self.expr_cmp(body),
+            Rule::expr_match => self.expr_match(body),
+            Rule::expr_if => self.expr_if(body),
             rule => unreachable!("{:?}", rule),
+        };
+        self.bind_pattern(&pattern);
+        BindExpr {
+            pattern,
+            body: body.into(),
+            span,
         }
     }
     fn expr_cmp(&mut self, pair: Pair<'i, Rule>) -> Node<'i> {
@@ -668,6 +673,7 @@ impl<'i> ParseState<'i> {
             Rule::entity_literal => {
                 let mut entries = Vec::new();
                 let mut default: Option<Box<Node>> = None;
+                self.push_paren_scope();
                 for pair in pair.into_inner() {
                     if let Some(default) = &default {
                         self.errors
@@ -681,15 +687,12 @@ impl<'i> ParseState<'i> {
                                 Rule::tag_literal => {
                                     entries.push(Entry::Tag(self.ident(only(first))))
                                 }
-                                Rule::ident => {
-                                    let ident = self.ident(first.clone());
-                                    let value = if let Some(second) = pairs.next() {
-                                        self.expr(second)
-                                    } else {
-                                        let span = first.as_span();
-                                        Node::Term(self.ident_term(first), span)
-                                    };
-                                    entries.push(Entry::Field(ident, value));
+                                Rule::binding => {
+                                    let binding = self.binding(first);
+                                    entries.push(Entry::Bind(binding));
+                                }
+                                Rule::function_def => {
+                                    entries.push(Entry::FunctionDef(self.function_def(first)))
                                 }
                                 Rule::expr => {
                                     let key = self.expr(first.clone());
@@ -697,13 +700,22 @@ impl<'i> ParseState<'i> {
                                     entries.push(Entry::Index(key, value));
                                 }
                                 Rule::entity_default => {
-                                    default = Some(self.expr(only(first)).into());
+                                    self.pop_paren_scope();
+                                    default = Some(self.expr(only(first)).into())
+                                }
+                                Rule::ident => {
+                                    let ident = self.ident(first);
+                                    self.verify_ident(&ident);
+                                    entries.push(Entry::SameName(ident));
                                 }
                                 rule => unreachable!("{:?}", rule),
                             }
                         }
                         rule => unreachable!("{:?}", rule),
                     }
+                }
+                if default.is_none() {
+                    self.pop_paren_scope();
                 }
                 Term::Entity { entries, default }
             }

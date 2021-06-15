@@ -3,6 +3,7 @@ ws = { WHITESPACE }
 single_line_comment = @{ "--" ~ (!NEWLINE ~ ANY)* ~ &(NEWLINE | EOI) }
 multi_line_comment = @{ "'''" ~ (!"'''" ~ ANY)* ~ ("'''" | &EOI) }
 COMMENT = _{ multi_line_comment | single_line_comment }
+sep = _{ ","? ~ NEWLINE+ | "," }
 keyword = { "and" | "or" | "if" | "then" | "else" | "match" }
 
 // Numbers
@@ -35,10 +36,10 @@ starts_with_keyword = @{ keyword ~ ("_"* ~ ident_tail+)+ }
 ident = { !keyword ~ ident_inner | starts_with_keyword | "_" }
 
 // Container literals
-list_literal = { "[" ~ (expr ~ ",")* ~ expr? ~ "]" }
+list_literal = { "[" ~ (expr ~ sep)* ~ (expr ~ NEWLINE*)? ~ "]" }
 entity_default = { ".." ~ expr }
-entity_item = { tag_literal | expr ~ "=>" ~ expr | ident ~ (":" ~ expr)? | entity_default }
-entity_literal = { "{" ~ NEWLINE? ~ (entity_item ~ "," ~ NEWLINE?)* ~ (entity_item ~ NEWLINE?)? ~ "}" }
+entity_item = { tag_literal | expr ~ "=>" ~ expr | binding | entity_default | function_def | ident }
+entity_literal = { "{" ~ NEWLINE? ~ (entity_item ~ sep)* ~ (entity_item ~ NEWLINE*)? ~ "}" }
 
 // Operators
 op_as = { "+" | "-" }
@@ -51,14 +52,14 @@ op_neg = { "-" }
 // Terms
 paren_expr = { "(" ~ NEWLINE* ~ items ~ ")" }
 param = { rebindable_pattern }
-closure_params = { (param | "|" ~ (param ~ ",")* ~ param?) ~ "|" }
+closure_params = { (param | "|" ~ (param ~ sep)* ~ (param ~ NEWLINE*)?) ~ "|" }
 closure = { closure_params ~ NEWLINE? ~ expr }
 tag_literal = ${ "#" ~ ident }
 pattern_literal = ${ "?" ~ pattern | regex }
 term = { real | int | closure | ident | tag_literal | string | paren_expr | list_literal | entity_literal | pattern_literal }
 
 // Access
-call_args = { "(" ~ NEWLINE? ~ (expr ~ "," ~ NEWLINE?)* ~ (expr ~ NEWLINE?)? ~ ")" }
+call_args = { "(" ~ NEWLINE? ~ (expr ~ sep)* ~ (expr ~ NEWLINE*)? ~ ")" }
 field_access = { NEWLINE? ~ "." ~ ident }
 method_call = { NEWLINE? ~ ":" ~ ident ~ call_args }
 accessor = { method_call | field_access | call_args }
@@ -69,7 +70,7 @@ expr_neg = { op_neg? ~ expr_access }
 expr_mdr = { expr_neg ~ (op_mdr ~ expr_neg)* }
 expr_as = { expr_mdr ~ (op_as ~ expr_mdr)* }
 expr_cmp = { expr_as ~ (op_comp ~ expr_as)* }
-expr_bind = { rebindable_pattern ~ "=" ~ NEWLINE? ~ (expr_cmp | expr_match | expr_if) | expr_cmp }
+expr_bind = { binding | expr_cmp }
 expr_and = { expr_bind ~ (NEWLINE? ~ op_and ~ NEWLINE? ~ expr_bind)* }
 expr_or = { expr_and ~ (NEWLINE? ~ op_or ~ NEWLINE? ~ expr_and)* }
 expr_if = { "if" ~ expr ~ "then"? ~ NEWLINE? ~ expr ~ NEWLINE? ~ "else" ~ NEWLINE? ~ expr }
@@ -81,11 +82,12 @@ list_pattern = { "[" ~ (pattern ~ ","?)* ~ "]" }
 field_pattern = !{ ident ~ (":" ~ pattern)? }
 entity_pattern = { "{" ~ (field_pattern ~ ","?)* ~ "}" }
 regex = { "#" ~ either_string }
+binding = { rebindable_pattern ~ "=" ~ NEWLINE? ~ (expr_cmp | expr_match | expr_if) }
 pattern = !{ ident | int | string | regex | list_pattern | entity_pattern }
 rebindable_pattern = { pattern ~ (":" ~ pattern)? }
 
 // Items
-function_def = { ident ~ "(" ~ (param ~ ",")* ~ param? ~ ")" ~ "=" ~ NEWLINE? ~ expr }
+function_def = { ident ~ "(" ~ (param ~ sep)* ~ (param ~ NEWLINE?)? ~ ")" ~ "=" ~ NEWLINE? ~ expr }
 item = { function_def | expr }
 items = { (item ~ NEWLINE*)* }
 file = { SOI ~ NEWLINE* ~ items ~ EOI }

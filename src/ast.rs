@@ -239,7 +239,9 @@ pub struct AccessExpr<'i> {
 
 #[derive(Debug, Clone)]
 pub enum Entry<'i> {
-    Field(Ident<'i>, Node<'i>),
+    SameName(Ident<'i>),
+    Bind(BindExpr<'i>),
+    FunctionDef(FunctionDef<'i>),
     Tag(Ident<'i>),
     Index(Node<'i>, Node<'i>),
 }
