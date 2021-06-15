@@ -1,5 +1,6 @@
 use std::{
     cmp::Ordering,
+    ffi::OsStr,
     fmt,
     hash::{Hash, Hasher},
     rc::Rc,
@@ -8,6 +9,20 @@ use std::{
 use pest::Span;
 
 use crate::{entity::Key, pattern::Pattern};
+
+#[derive(Debug, Clone)]
+pub struct FileSpan<'i> {
+    pub span: Span<'i>,
+    pub file: Option<Rc<OsStr>>,
+}
+
+impl<'i> FileSpan<'i> {
+    pub fn new(span: Span<'i>, file: impl Into<Rc<OsStr>>) -> Self {
+        let file = file.into();
+        let file = if file.is_empty() { None } else { Some(file) };
+        FileSpan { span, file }
+    }
+}
 
 #[derive(Clone)]
 pub struct Ident<'i> {

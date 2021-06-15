@@ -43,12 +43,12 @@ fn main() {
             exit(1);
         }
     };
-    let input = std::fs::read_to_string(main_path).unwrap();
+    let input = std::fs::read_to_string(&main_path).unwrap();
 
     let mut runtime = Runtime::new();
 
     if app.check {
-        if let Err(errors) = runtime.check(&input) {
+        if let Err(errors) = runtime.check(&input, main_path) {
             for error in errors {
                 println!("{}", error)
             }
@@ -57,7 +57,7 @@ fn main() {
             println!("Check succeeded");
         }
     } else {
-        match runtime.eval(&input) {
+        match runtime.eval(&input, main_path) {
             Ok(_) => {}
             Err(e) => {
                 println!("{}", e);

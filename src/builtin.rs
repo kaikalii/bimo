@@ -185,7 +185,7 @@ functions!(
     },
     eval(code) = |rt, span| {
         let code = require_type!(code, span, Value::String(s) => s);
-        rt.eval(static_str(&code))
+        rt.eval(static_str(&code), "")
     },
     mod(path) = |rt, span| {
         let path = require_type!(path, span, Value::String(s) => PathBuf::from(&*s))
@@ -197,7 +197,7 @@ functions!(
             Ok(mut map) => map
                 .entry(path)
                 .or_insert_with_key(|path| match fs::read_to_string(&path) {
-                    Ok(code) => rt.eval(static_str(&code)),
+                    Ok(code) => rt.eval(static_str(&code), path),
                     Err(e) => Err(RuntimeError::new(
                         format!("Error opening {}: {}", path.to_string_lossy(), e),
                         span.clone(),

@@ -1,5 +1,5 @@
 use std::{
-    cell::RefCell, collections::HashMap, error::Error, fmt, iter::repeat, mem::swap,
+    cell::RefCell, collections::HashMap, error::Error, ffi::OsStr, fmt, iter::repeat, mem::swap,
     mem::transmute, rc::Rc,
 };
 
@@ -91,6 +91,7 @@ impl<'i> From<Vec<CheckError<'i>>> for RuntimeError<'i> {
 
 pub struct Runtime<'i> {
     pub(crate) scope: Scope<'i>,
+    pub(crate) file_stack: Vec<Rc<OsStr>>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -410,6 +411,7 @@ impl<'i> Runtime<'i> {
                         .collect(),
                 )),
             },
+            file_stack: vec![<str as AsRef<OsStr>>::as_ref("").into()],
         }
     }
     pub fn val(&self, name: &'i str) -> Value<'i> {
@@ -417,12 +419,36 @@ impl<'i> Runtime<'i> {
             .val(name)
             .unwrap_or_else(|| panic!("Unknown value: {}", name))
     }
-    pub fn eval<'r>(&'r mut self, input: &'i str) -> RuntimeResult<'i> {
-        let items = parse(self, input)?;
-        self.eval_items(&items)
+    fn in_file<S, F, R>(&mut self, file: S, f: F) -> R
+    where
+        S: AsRef<OsStr>,
+        F: FnOnce(&mut Self) -> R,
+    {
+        let file = file.as_ref();
+        if !file.is_empty() {
+            self.file_stack.push(file.into());
+        }
+        let res = f(self);
+        if !file.is_empty() {
+            self.file_stack.pop();
+        }
+        res
     }
-    pub fn check<'r>(&'r mut self, input: &'i str) -> Result<(), Vec<CheckError<'i>>> {
-        parse(self, input)?;
+    pub fn span(&self, span: Span<'i>) -> FileSpan<'i> {
+        FileSpan::new(span, self.file_stack.last().unwrap().clone())
+    }
+    pub fn eval<'r>(&'r mut self, input: &'i str, file: impl AsRef<OsStr>) -> RuntimeResult<'i> {
+        self.in_file(file, |rt| {
+            let items = parse(rt, input)?;
+            rt.eval_items(&items)
+        })
+    }
+    pub fn check<'r>(
+        &'r mut self,
+        input: &'i str,
+        file: impl AsRef<OsStr>,
+    ) -> Result<(), Vec<CheckError<'i>>> {
+        self.in_file(file, |rt| parse(rt, input))?;
         Ok(())
     }
     fn eval_items(&mut self, items: &[Item<'i>]) -> RuntimeResult<'i> {
