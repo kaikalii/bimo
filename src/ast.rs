@@ -277,7 +277,7 @@ pub enum Term<'i> {
     Real(f64),
     Ident(Ident<'i>),
     Tag(Ident<'i>),
-    String(Vec<StringPart<'i>>),
+    String(Vec<Vec<StringPart<'i>>>),
     List(Vec<Node<'i>>),
     Entity {
         entries: Vec<Entry<'i>>,

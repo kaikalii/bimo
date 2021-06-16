@@ -504,7 +504,7 @@ impl<'i> Runtime<'i> {
             Term::Real(r) => Value::Num((*r).into()),
             Term::String(parts) => {
                 let mut s = String::new();
-                for part in parts {
+                for part in parts.iter().flatten() {
                     match part {
                         StringPart::Raw(part) => s.push_str(part),
                         StringPart::Format(node) => s.push_str(&self.eval_node(node)?.to_string()),

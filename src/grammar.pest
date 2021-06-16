@@ -12,7 +12,7 @@ real = @{ int ~ ("." ~ ASCII_DIGIT+) ~ (^"e" ~ int)? }
 
 // String literals
 string = { (either_string ~ NEWLINE?)+ }
-either_string = _{ quoted_string | format_string }
+either_string = { quoted_string | format_string }
 format_string = ${ "$\"" ~ ( format_arg | formatted_string_part)* ~ "\"" }
 quoted_string = ${ "\"" ~ string_part* ~ "\"" }
 format_arg = !{ "{" ~ expr ~ "}" }
@@ -83,7 +83,7 @@ field_pattern = !{ ident ~ (":" ~ pattern)? }
 entity_pattern = { "{" ~ (field_pattern ~ ","?)* ~ "}" }
 regex = { "#" ~ either_string }
 binding = { rebindable_pattern ~ "=" ~ NEWLINE? ~ (expr_cmp | expr_match | expr_if) }
-pattern = !{ ident | int | string | regex | list_pattern | entity_pattern }
+pattern = !{ ident | int | either_string | regex | list_pattern | entity_pattern }
 rebindable_pattern = { pattern ~ (":" ~ pattern)? }
 
 // Items

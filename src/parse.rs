@@ -348,12 +348,12 @@ impl<'i> ParseState<'i> {
                     span,
                 }
             }
-            Rule::string => {
+            Rule::quoted_string | Rule::format_string => {
                 let span = pair.span(self);
                 Pattern::String {
                     pattern: StringPattern {
                         is_regex: false,
-                        parts: self.string(pair),
+                        parts: self.either_string(pair),
                         resolved: None,
                     }
                     .into(),
@@ -383,7 +383,7 @@ impl<'i> ParseState<'i> {
         Pattern::String {
             pattern: StringPattern {
                 is_regex: false,
-                parts: self.string(pair),
+                parts: self.either_string(only(pair)),
                 resolved: None,
             }
             .into(),
@@ -658,13 +658,6 @@ impl<'i> ParseState<'i> {
                 self.push_paren_scope();
                 let items = self.items(pair);
                 self.pop_paren_scope();
-                if items.len() == 1 && matches!(items[0], Item::Node(_)) {
-                    if let Item::Node(node) = items.into_iter().next().unwrap() {
-                        return node;
-                    } else {
-                        unreachable!()
-                    }
-                }
                 Term::Expr(items)
             }
             Rule::string => {
@@ -784,17 +777,17 @@ impl<'i> ParseState<'i> {
             rule => unreachable!("{:?}", rule),
         }
     }
-    fn string(&mut self, pair: Pair<'i, Rule>) -> Vec<StringPart<'i>> {
+    fn string(&mut self, pair: Pair<'i, Rule>) -> Vec<Vec<StringPart<'i>>> {
         let mut parts = Vec::new();
         for pair in pair.into_inner() {
-            parts.extend(self.quoted_string(pair));
+            parts.push(self.either_string(pair));
         }
         parts
     }
-    fn quoted_string(&mut self, pair: Pair<'i, Rule>) -> Vec<StringPart<'i>> {
+    fn either_string(&mut self, pair: Pair<'i, Rule>) -> Vec<StringPart<'i>> {
         let mut parts = Vec::new();
         let mut s = String::new();
-        for pair in pair.into_inner() {
+        for pair in only(pair).into_inner() {
             match pair.as_rule() {
                 Rule::string_text | Rule::format_string_text => s.push_str(pair.as_str()),
                 Rule::predefined => s.push(match pair.as_str() {
