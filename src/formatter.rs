@@ -1,7 +1,7 @@
 use std::{fs, path::Path};
 
 use crate::{
-    ast::{FunctionDef, Item, Items, Node, Term, UnOp},
+    ast::{FunctionDef, Item, Items, Node, Term},
     error::{BimoError, BimoResult},
     pattern::Pattern,
     runtime::Runtime,
@@ -15,9 +15,8 @@ pub struct FormatSettings {
 
 impl Default for FormatSettings {
     fn default() -> Self {
-        // FormatSettings { max_width: 100 }
         FormatSettings {
-            max_width: 30,
+            max_width: 20,
             write: false,
         }
     }
@@ -31,129 +30,175 @@ impl FormatSettings {
             .parse(&input, path.as_ref())
             .map_err(BimoError::change_lifetime)?;
 
-        if let Some(text) = items.format(self.max_width) {
-            if self.write {
-                fs::write(path, text.as_bytes())?;
-            } else {
-                let path_str = path.as_ref().to_string_lossy();
-                println!(
-                    "{}\n{:-<width$}\n{}\n",
-                    path_str,
-                    "",
-                    text,
-                    width = path_str.len()
-                );
-            }
+        let Permutation(lines) = items.best_permutation(0, self);
+
+        let mut text = String::new();
+        for line in lines {
+            text.push_str(&tabs(line.indent));
+            text.push_str(&line.string);
+            text.push('\n');
+        }
+        text.push('\n');
+
+        if self.write {
+            fs::write(path, text.as_bytes())?;
+        } else {
+            let path_str = path.as_ref().to_string_lossy();
+            println!(
+                "{}\n{:-<width$}\n{}\n",
+                path_str,
+                "",
+                text,
+                width = path_str.len()
+            );
         }
 
         Ok(())
     }
 }
 
-#[derive(Debug)]
-struct Frag {
+#[derive(Debug, Clone)]
+struct Line {
     string: String,
-    depth: usize,
-    on_multi: bool,
-    on_single: bool,
-    indent: bool,
-    deindent: bool,
+    indent: usize,
 }
 
-impl Frag {
-    fn new(string: impl ToString, depth: usize) -> Self {
-        Frag {
+#[derive(Debug, Clone)]
+struct Permutation(Vec<Line>);
+
+impl From<Vec<Line>> for Permutation {
+    fn from(lines: Vec<Line>) -> Permutation {
+        Permutation(lines)
+    }
+}
+
+impl Permutation {
+    fn new() -> Self {
+        Permutation(Vec::new())
+    }
+    fn len(&self) -> usize {
+        self.0.len()
+    }
+    fn only(string: impl ToString, indent: usize) -> Vec<Self> {
+        vec![Permutation::new().line(string, indent)]
+    }
+    fn line(mut self, string: impl ToString, indent: usize) -> Self {
+        self.0.push(Line {
             string: string.to_string(),
-            depth,
-            on_multi: true,
-            on_single: true,
-            indent: false,
-            deindent: false,
+            indent,
+        });
+        self
+    }
+    fn extend(mut self, mut other: Self) -> Self {
+        self.0.append(&mut other.0);
+        self
+    }
+    fn append_perm(mut self, perm: Permutation) -> Self {
+        let mut lines = perm.0.into_iter();
+        if let Some(line) = lines.next() {
+            if let Some(last) = self.0.last_mut() {
+                last.string.push_str(&line.string);
+            } else {
+                self.0.push(line);
+            }
+        }
+        self.0.extend(lines);
+        self
+    }
+    fn append_str(mut self, string: impl AsRef<str>) -> Self {
+        if let Some(line) = self.0.last_mut() {
+            line.string.push_str(string.as_ref());
+        } else {
+            panic!("no line to append to");
+        }
+        self
+    }
+    fn maybe_append(self, string: impl AsRef<str>, indent: usize, multiline: bool) -> Self {
+        if multiline {
+            self.line(string.as_ref(), indent)
+        } else {
+            self.append_str(string)
         }
     }
-    fn open(depth: usize) -> Self {
-        Frag::new("\n", depth).indent().multi_only()
+    fn max_width(&self) -> usize {
+        self.0
+            .iter()
+            .map(|line| line.indent * 4 + line.string.len())
+            .max()
+            .unwrap()
     }
-    fn close(depth: usize) -> Self {
-        Frag::new("\n", depth).deindent().multi_only()
-    }
-    fn newline(depth: usize) -> Self {
-        Frag::new("\n", depth).multi_only()
-    }
-    fn indent(self) -> Self {
-        Frag {
-            indent: true,
-            ..self
+    fn join<F>(a: Vec<Self>, b: Vec<Self>, join: F) -> Vec<Self>
+    where
+        F: Fn(Self, Self) -> Vec<Self>,
+    {
+        let mut joined = Vec::new();
+        for a in a {
+            for b in b.iter() {
+                joined.extend(join(a.clone(), b.clone()));
+            }
         }
+        joined
     }
-    fn deindent(self) -> Self {
-        Frag {
-            deindent: true,
-            ..self
+    fn sep_list<T, F>(
+        self,
+        indent: usize,
+        settings: &FormatSettings,
+        items: &[T],
+        tail: F,
+    ) -> Vec<Permutation>
+    where
+        T: Formattable,
+        F: Fn(Permutation, bool) -> Vec<Permutation>,
+    {
+        let mut single = self.clone();
+        for (i, item) in items.iter().enumerate() {
+            if i > 0 {
+                single = single.append_str(", ");
+                single = single.append_str(" ");
+            }
+            single = single.append_perm(item.best_permutation(indent, settings));
         }
-    }
-    fn single_only(self) -> Self {
-        Frag {
-            on_multi: false,
-            ..self
+        let mut multi = self;
+        for item in items {
+            multi = multi
+                .extend(item.best_permutation(indent, settings))
+                .append_str(",");
         }
-    }
-    fn multi_only(self) -> Self {
-        Frag {
-            on_single: false,
-            ..self
-        }
+        tail(single, false)
+            .into_iter()
+            .chain(tail(multi, true))
+            .collect()
     }
 }
 
 trait Formattable {
-    fn fragments(&self, depth: usize) -> Vec<Frag>;
-    fn format(&self, max_width: usize) -> Option<String> {
-        let frags = self.fragments(0);
-        let mut formatted = None;
-        for depth in 0..5 {
-            println!("\ndepth: {}", depth);
-            let mut indent = 0;
-            let mut text = String::new();
-            let mut push_indent = false;
-            for frag in &frags {
-                let multiline = depth > frag.depth;
-                if multiline && !frag.on_multi || !multiline && !frag.on_single {
-                    continue;
-                }
-                if push_indent && !frag.string.trim().is_empty() {
-                    text.push_str(&tabs(indent));
-                    push_indent = false;
-                    println!("pushed indent");
-                }
-                println!("{:?}", frag);
-                if frag.indent {
-                    indent += 1;
-                    println!("indent -> {}", indent);
-                }
-                if frag.deindent {
-                    indent -= 1;
-                    println!("deindent -> {}", indent);
-                }
-                text.push_str(&frag.string);
-                if frag.string.contains('\n') {
-                    push_indent = true;
-                    println!("can push indent");
-                }
-            }
-
-            text = text
-                .lines()
-                .map(|line| format!("{}\n", line.trim_end()))
-                .collect();
-            println!("text:\n{}\n", text);
-
-            if text.lines().all(|line| line.len() < max_width) {
-                formatted = Some(text);
-                break;
-            }
+    fn name() -> &'static str;
+    fn permutations(&self, indent: usize, settings: &FormatSettings) -> Vec<Permutation>;
+    fn best_permutation(&self, indent: usize, settings: &FormatSettings) -> Permutation {
+        let perms = self.permutations(indent, settings);
+        let best = perms
+            .iter()
+            .filter(|perm| perm.max_width() <= settings.max_width)
+            .cloned()
+            .max_by(|a, b| {
+                a.len()
+                    .cmp(&b.len())
+                    .reverse()
+                    .then(a.max_width().cmp(&b.max_width()))
+            });
+        if let Some(best) = best {
+            println!("perm is narrow enough: {:?}", best);
+            best
+        } else {
+            println!(
+                "perm is too wide: {:#?}",
+                perms.iter().max_by_key(|perm| perm.max_width())
+            );
+            perms
+                .into_iter()
+                .min_by_key(Permutation::max_width)
+                .unwrap()
         }
-        formatted
     }
 }
 
@@ -165,154 +210,134 @@ impl<T> Formattable for Box<T>
 where
     T: Formattable,
 {
-    fn fragments(&self, depth: usize) -> Vec<Frag> {
-        (&**self).fragments(depth)
+    fn name() -> &'static str {
+        T::name()
     }
-}
-
-fn sep_list<T>(frags: &mut Vec<Frag>, depth: usize, items: &[T])
-where
-    T: Formattable,
-{
-    frags.push(Frag::open(depth));
-    for (i, item) in items.iter().enumerate() {
-        frags.extend(item.fragments(depth));
-        if i < items.len() - 1 {
-            frags.push(Frag::new(",", depth));
-            frags.push(Frag::new(" ", depth).single_only());
-            frags.push(Frag::newline(depth).multi_only());
-        } else {
-            frags.push(Frag::new(",", depth).multi_only());
-        }
+    fn permutations(&self, indent: usize, settings: &FormatSettings) -> Vec<Permutation> {
+        (&**self).permutations(indent, settings)
     }
-    frags.push(Frag::close(depth));
 }
 
 impl<'i> Formattable for Term<'i> {
-    fn fragments(&self, depth: usize) -> Vec<Frag> {
-        let mut frags = Vec::new();
+    fn name() -> &'static str {
+        "term"
+    }
+    fn permutations(&self, indent: usize, settings: &FormatSettings) -> Vec<Permutation> {
         match self {
-            Term::Nil => frags.push(Frag::new("nil", depth)),
-            Term::Bool(b) => frags.push(Frag::new(b, depth)),
-            Term::Int(i) => frags.push(Frag::new(i, depth)),
-            Term::Real(r) => frags.push(Frag::new(r, depth)),
+            Term::Nil => Permutation::only("nil", indent),
+            Term::Bool(b) => Permutation::only(b, indent),
+            Term::Int(i) => Permutation::only(i, indent),
+            Term::Real(r) => Permutation::only(r, indent),
             Term::String(_) => {
                 todo!()
             }
-            Term::Ident(ident) => frags.push(Frag::new(ident.name, depth)),
-            Term::List(nodes) => {
-                frags.push(Frag::new("[", depth));
-                sep_list(&mut frags, depth, nodes);
-                frags.push(Frag::new("]", depth));
-            }
-            Term::Expr(items) => {
-                frags.push(Frag::new("(", depth));
-                frags.extend(items.fragments(depth));
-                frags.push(Frag::new(")", depth));
-            }
+            Term::Ident(ident) => Permutation::only(ident.name, indent),
+            Term::List(nodes) => Permutation::new().line("[", indent).sep_list(
+                indent + 1,
+                settings,
+                nodes,
+                |perm, multiline| vec![perm.maybe_append("]", indent, multiline)],
+            ),
+            Term::Expr(items) => vec![items
+                .iter()
+                .fold(Permutation::new().line("(", indent), |perm, item| {
+                    perm.extend(item.best_permutation(indent + 1, settings))
+                })
+                .line(")", indent)],
             term => todo!("{:?}", term),
         }
-        frags
     }
 }
 
 impl<'i> Formattable for Pattern<'i> {
-    fn fragments(&self, depth: usize) -> Vec<Frag> {
-        let mut frags = Vec::new();
+    fn name() -> &'static str {
+        "pattern"
+    }
+    fn permutations(&self, indent: usize, _settings: &FormatSettings) -> Vec<Permutation> {
         match self {
-            Pattern::Single(ident) | Pattern::Value(ident) => {
-                frags.push(Frag::new(ident.name, depth))
-            }
-            Pattern::Bound { left, right, .. } => {
-                frags.extend(left.fragments(depth));
-                frags.push(Frag::new(": ", depth));
-                frags.push(Frag::newline(depth + 1));
-                frags.extend(right.fragments(depth));
-            }
-            Pattern::Nil(_) => frags.push(Frag::new("nil", depth)),
-            Pattern::Bool { b, .. } => frags.push(Frag::new(b, depth)),
-            Pattern::Int { int, .. } => frags.push(Frag::new(int, depth)),
+            Pattern::Single(ident) | Pattern::Value(ident) => Permutation::only(ident.name, indent),
+            Pattern::Nil(_) => Permutation::only("nil", indent),
+            Pattern::Bool { b, .. } => Permutation::only(b, indent),
+            Pattern::Int { int, .. } => Permutation::only(int, indent),
             _ => todo!(),
         }
-        frags
     }
 }
 
 impl<'i> Formattable for Node<'i> {
-    fn fragments(&self, depth: usize) -> Vec<Frag> {
-        let mut frags = Vec::new();
+    fn name() -> &'static str {
+        "node"
+    }
+    fn permutations(&self, indent: usize, settings: &FormatSettings) -> Vec<Permutation> {
         match self {
-            Node::Term(term, ..) => return term.fragments(depth),
-            Node::If(expr) => {
-                frags.push(Frag::new("if ", depth));
-                frags.extend(expr.condition.fragments(depth + 3));
-                frags.push(Frag::new(" then ", depth + 1).single_only());
-                frags.push(Frag::open(depth + 1));
-                frags.extend(expr.if_true.fragments(depth + 2));
-                frags.push(Frag::close(depth + 1));
-                frags.push(Frag::new(" ", depth).single_only());
-                frags.push(Frag::new("else ", depth));
-                frags.push(Frag::open(depth + 2));
-                frags.extend(expr.if_false.fragments(depth + 2));
-                frags.push(Frag::close(depth + 2));
-            }
-            Node::BinExpr(expr) => {
-                frags.extend(expr.left.fragments(depth + 1));
-                frags.push(Frag::open(depth));
-                frags.push(Frag::new(format!(" {} ", expr.op_span.as_str()), depth));
-                frags.extend(expr.right.fragments(depth + 1));
-                frags.push(Frag::close(depth));
-            }
-            Node::UnExpr(expr) => {
-                let op = match expr.op {
-                    UnOp::Neg => "-",
-                };
-                frags.push(Frag::new(op, depth));
-                frags.extend(expr.inner.fragments(depth));
-            }
-            Node::Call(expr) => {
-                frags.extend(expr.caller.fragments(depth));
-                frags.push(Frag::new("(", depth));
-                sep_list(&mut frags, depth, &expr.args);
-                frags.push(Frag::new(")", depth));
-            }
+            Node::Term(term, ..) => term.permutations(indent, settings),
+            Node::BinExpr(expr) => Permutation::join(
+                expr.left.permutations(indent, settings),
+                expr.right.permutations(indent, settings),
+                |left, right| {
+                    let op = expr.op_span.as_str().trim();
+                    vec![
+                        left.clone()
+                            .append_str(format!(" {} ", op))
+                            .append_perm(right.clone()),
+                        left.line(format!("{} ", op), indent + 1).append_perm(right),
+                    ]
+                },
+            ),
+            Node::Call(expr) => expr
+                .caller
+                .permutations(indent, settings)
+                .into_iter()
+                .flat_map(|perm| {
+                    perm.append_str("(").sep_list(
+                        indent + 1,
+                        settings,
+                        &expr.args,
+                        |perm, multiline| vec![perm.maybe_append(")", indent, multiline)],
+                    )
+                })
+                .collect(),
             node => todo!("{:?}", node),
         }
-        frags
     }
 }
 
 impl<'i> Formattable for FunctionDef<'i> {
-    fn fragments(&self, depth: usize) -> Vec<Frag> {
-        let mut frags = Vec::with_capacity(7);
-        frags.push(Frag::new(self.ident.name, depth));
-        frags.push(Frag::new("(", depth));
-        sep_list(&mut frags, depth + 1, &self.params);
-        frags.push(Frag::new(")", depth));
-        frags.push(Frag::new(" = ", depth));
-        frags.push(Frag::open(depth));
-        frags.extend(self.body.fragments(depth + 1));
-        frags.push(Frag::close(depth));
-        frags
+    fn name() -> &'static str {
+        "function_def"
+    }
+    fn permutations(&self, indent: usize, settings: &FormatSettings) -> Vec<Permutation> {
+        Permutation::new()
+            .line(self.ident.name, indent)
+            .append_str("(")
+            .sep_list(
+                indent + 1,
+                settings,
+                &self.params,
+                |_perm, _multiline| todo!(),
+            )
     }
 }
 
 impl<'i> Formattable for Item<'i> {
-    fn fragments(&self, depth: usize) -> Vec<Frag> {
+    fn name() -> &'static str {
+        "item"
+    }
+    fn permutations(&self, indent: usize, settings: &FormatSettings) -> Vec<Permutation> {
         match self {
-            Item::Node(node) => node.fragments(depth),
-            Item::FunctionDef(def) => def.fragments(depth),
+            Item::Node(node) => node.permutations(indent, settings),
+            Item::FunctionDef(def) => def.permutations(indent, settings),
         }
     }
 }
 
 impl<'i> Formattable for Items<'i> {
-    fn fragments(&self, depth: usize) -> Vec<Frag> {
-        let mut frags = Vec::new();
-        for item in self {
-            frags.extend(item.fragments(depth));
-            frags.push(Frag::new("\n", depth));
-        }
-        frags
+    fn name() -> &'static str {
+        "items"
+    }
+    fn permutations(&self, indent: usize, settings: &FormatSettings) -> Vec<Permutation> {
+        vec![self.iter().fold(Permutation::new(), |perm, item| {
+            perm.extend(item.best_permutation(indent, settings))
+        })]
     }
 }
