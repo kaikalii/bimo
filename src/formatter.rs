@@ -16,7 +16,7 @@ pub struct FormatSettings {
 impl Default for FormatSettings {
     fn default() -> Self {
         FormatSettings {
-            max_width: 20,
+            max_width: 25,
             write: false,
         }
     }
@@ -79,6 +79,9 @@ impl Permutation {
     fn len(&self) -> usize {
         self.0.len()
     }
+    fn is_line(&self) -> bool {
+        self.len() == 1
+    }
     fn only(string: impl ToString, indent: usize) -> Vec<Self> {
         vec![Permutation::new().line(string, indent)]
     }
@@ -123,18 +126,21 @@ impl Permutation {
     fn max_width(&self) -> usize {
         self.0
             .iter()
-            .map(|line| line.indent * 4 + line.string.len())
+            .map(|line| line.indent * 4 + line.string.trim().len())
             .max()
             .unwrap()
     }
-    fn join<F>(a: Vec<Self>, b: Vec<Self>, join: F) -> Vec<Self>
+    fn join<A, B, C, F>(a: A, b: B, join: F) -> Vec<Self>
     where
-        F: Fn(Self, Self) -> Vec<Self>,
+        A: IntoIterator<Item = Self>,
+        B: IntoIterator<Item = Self> + Clone,
+        C: IntoIterator<Item = Self>,
+        F: Fn(Self, Self) -> C,
     {
         let mut joined = Vec::new();
         for a in a {
-            for b in b.iter() {
-                joined.extend(join(a.clone(), b.clone()));
+            for b in b.clone() {
+                joined.extend(join(a.clone(), b));
             }
         }
         joined
@@ -153,7 +159,7 @@ impl Permutation {
         let mut single = self.clone();
         for (i, item) in items.iter().enumerate() {
             if i > 0 {
-                single = single.append_str(", ");
+                single = single.append_str(",");
                 single = single.append_str(" ");
             }
             single = single.append_perm(item.best_permutation(indent, settings));
@@ -180,20 +186,14 @@ trait Formattable {
             .iter()
             .filter(|perm| perm.max_width() <= settings.max_width)
             .cloned()
-            .max_by(|a, b| {
+            .min_by(|a, b| {
                 a.len()
                     .cmp(&b.len())
-                    .reverse()
-                    .then(a.max_width().cmp(&b.max_width()))
+                    .then(a.max_width().cmp(&b.max_width()).reverse())
             });
         if let Some(best) = best {
-            println!("perm is narrow enough: {:?}", best);
             best
         } else {
-            println!(
-                "perm is too wide: {:#?}",
-                perms.iter().max_by_key(|perm| perm.max_width())
-            );
             perms
                 .into_iter()
                 .min_by_key(Permutation::max_width)
@@ -307,15 +307,35 @@ impl<'i> Formattable for FunctionDef<'i> {
         "function_def"
     }
     fn permutations(&self, indent: usize, settings: &FormatSettings) -> Vec<Permutation> {
-        Permutation::new()
+        let left = Permutation::new()
             .line(self.ident.name, indent)
             .append_str("(")
-            .sep_list(
-                indent + 1,
-                settings,
-                &self.params,
-                |_perm, _multiline| todo!(),
-            )
+            .sep_list(indent + 1, settings, &self.params, |perm, multiline| {
+                vec![perm.maybe_append(") = ", indent, multiline)]
+            });
+        let on_same_line = Permutation::join(
+            left.clone(),
+            self.body.permutations(indent, settings),
+            |left, right| {
+                if left.is_line() && right.is_line() {
+                    Some(left.append_perm(right))
+                } else {
+                    None
+                }
+            },
+        );
+        let on_next_line = Permutation::join(
+            left,
+            self.body.permutations(indent + 1, settings),
+            |left, right| {
+                if left.is_line() {
+                    Some(left.extend(right))
+                } else {
+                    None
+                }
+            },
+        );
+        on_same_line.into_iter().chain(on_next_line).collect()
     }
 }
 
