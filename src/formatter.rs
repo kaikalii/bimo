@@ -1,4 +1,22 @@
-use crate::ast::{FunctionDef, Item, Items, Node, Term, UnOp};
+use std::{fs::OpenOptions, io::Read, path::Path};
+
+use crate::{
+    ast::{FunctionDef, Item, Items, Node, Term, UnOp},
+    error::{BimoError, BimoResult},
+    runtime::Runtime,
+};
+
+pub fn format<'i>(path: impl AsRef<Path>) -> BimoResult<'i, ()> {
+    let mut file = OpenOptions::new().read(true).write(true).open(&path)?;
+    let mut input = String::new();
+    file.read_to_string(&mut input)?;
+    let mut runtime = Runtime::new();
+    let items = runtime
+        .parse(&input, path.as_ref())
+        .map_err(BimoError::change_lifetime)?;
+
+    Ok(())
+}
 
 #[derive(Debug, Clone)]
 pub struct FormatSettings {

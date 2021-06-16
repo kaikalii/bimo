@@ -1,80 +1,22 @@
 use std::{
-    cell::RefCell, collections::HashMap, error::Error, ffi::OsStr, fmt, iter::repeat, mem::swap,
-    mem::transmute, rc::Rc,
+    cell::RefCell, collections::HashMap, ffi::OsStr, iter::repeat, mem::swap, mem::transmute,
+    rc::Rc,
 };
 
-use itertools::Itertools;
 use regex::Regex;
 
 use crate::{
     ast::*,
     builtin::{FUNCTIONS, PATTERNS},
     entity::{Entity, Key},
+    error::{BimoError, BimoResult},
     num::Num,
-    parse::{format_span, parse, CheckError},
+    parse::{parse, CheckError},
     pattern::{FieldPattern, Pattern},
     value::*,
 };
 
-pub type BimoFn<'i> = fn(&mut Runtime<'i>, &FileSpan<'i>) -> RuntimeResult<'i>;
-
-#[derive(Debug, Clone)]
-pub struct RuntimeError<'i> {
-    pub message: String,
-    pub spans: Vec<FileSpan<'i>>,
-}
-
-impl<'i> RuntimeError<'i> {
-    pub fn new(message: impl Into<String>, span: FileSpan<'i>) -> Self {
-        RuntimeError::multispan(message, Some(span))
-    }
-    pub fn multispan(
-        message: impl Into<String>,
-        spans: impl IntoIterator<Item = FileSpan<'i>>,
-    ) -> Self {
-        RuntimeError {
-            message: message.into(),
-            spans: spans.into_iter().collect(),
-        }
-    }
-    pub fn unspanned(message: impl Into<String>) -> Self {
-        RuntimeError::multispan(message, None)
-    }
-}
-
-impl<'i> fmt::Display for RuntimeError<'i> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        if self.spans.is_empty() {
-            write!(f, "{}", self.message)
-        } else {
-            let mut message = Some(&self.message);
-            for (i, span) in self.spans.iter().enumerate() {
-                if i > 0 {
-                    writeln!(f)?;
-                }
-                format_span(message.take().cloned().unwrap_or_default(), span, f)?;
-            }
-            Ok(())
-        }
-    }
-}
-
-impl<'i> Error for RuntimeError<'i> {}
-
-pub type RuntimeResult<'i, T = Value<'i>> = Result<T, RuntimeError<'i>>;
-
-impl<'i> From<Vec<CheckError<'i>>> for RuntimeError<'i> {
-    #[allow(unstable_name_collisions)]
-    fn from(errors: Vec<CheckError<'i>>) -> Self {
-        RuntimeError::unspanned(
-            errors
-                .iter()
-                .map(ToString::to_string)
-                .intersperse("\n".into())
-                .collect::<String>(),
-        )
-    }
-}
+pub type BimoFn<'i> = fn(&mut Runtime<'i>, &FileSpan<'i>) -> BimoResult<'i>;
 
 pub struct Runtime<'i> {
     pub(crate) scope: Scope<'i>,
@@ -110,14 +52,14 @@ impl<'i> Scope<'i> {
             self.values.borrow_mut().insert(ident.name, val);
         }
     }
-    fn find_pattern(&self, ident: &Ident<'i>) -> RuntimeResult<'i, Rc<Pattern<'i>>> {
+    fn find_pattern(&self, ident: &Ident<'i>) -> BimoResult<'i, Rc<Pattern<'i>>> {
         let pattern_val = self
             .val(ident.name)
             .unwrap_or_else(|| panic!("Unknown value: {}", ident.name));
         if let Value::Pattern(pattern) = pattern_val {
             Ok(pattern)
         } else {
-            Err(RuntimeError::new(
+            Err(BimoError::new(
                 format!("Attempted to use {} as a pattern", pattern_val.type_name()),
                 ident.span.clone(),
             ))
@@ -128,7 +70,7 @@ impl<'i> Scope<'i> {
         pattern: &Pattern<'i>,
         val: &Value<'i>,
         required: Option<&FileSpan<'i>>,
-    ) -> RuntimeResult<'i> {
+    ) -> BimoResult<'i> {
         Ok(match pattern {
             Pattern::Single(ident) => {
                 self.bind(ident, val.clone());
@@ -146,7 +88,7 @@ impl<'i> Scope<'i> {
                 if let Value::List(list) = val {
                     if let Some(value_span) = required {
                         if list.len() < patterns.len() {
-                            return Err(RuntimeError::multispan(
+                            return Err(BimoError::multispan(
                                 format!("List is too short to match pattern: {}", pattern),
                                 vec![span.clone(), value_span.clone()],
                             ));
@@ -165,7 +107,7 @@ impl<'i> Scope<'i> {
                         Value::Nil
                     }
                 } else if let Some(value_span) = required {
-                    return Err(RuntimeError::multispan(
+                    return Err(BimoError::multispan(
                         format!(
                             "Attempted to match {} against list pattern: {}",
                             val.type_name(),
@@ -195,7 +137,7 @@ impl<'i> Scope<'i> {
                         Value::Nil
                     }
                 } else if let Some(value_span) = required {
-                    return Err(RuntimeError::multispan(
+                    return Err(BimoError::multispan(
                         format!(
                             "Attempted to match {} against entity pattern: {}",
                             val.type_name(),
@@ -214,7 +156,7 @@ impl<'i> Scope<'i> {
                 if let Value::Nil = val {
                     Value::Bool(true)
                 } else if let Some(value_span) = required {
-                    return Err(RuntimeError::multispan(
+                    return Err(BimoError::multispan(
                         format!("Attempted to match {} against nil pattern", val.type_name()),
                         vec![span.clone(), value_span.clone()],
                     ));
@@ -225,7 +167,7 @@ impl<'i> Scope<'i> {
             Pattern::Bool { b: b1, span } => {
                 if let Value::Bool(b2) = val {
                     if let (Some(value_span), true) = (required, b1 != b2) {
-                        return Err(RuntimeError::multispan(
+                        return Err(BimoError::multispan(
                             format!("Bool value does not match bool pattern: {}", pattern),
                             vec![span.clone(), value_span.clone()],
                         ));
@@ -233,7 +175,7 @@ impl<'i> Scope<'i> {
                         Value::Bool(b1 == b2)
                     }
                 } else if let Some(value_span) = required {
-                    return Err(RuntimeError::multispan(
+                    return Err(BimoError::multispan(
                         format!(
                             "Attempted to match {} against bool pattern: {}",
                             val.type_name(),
@@ -249,7 +191,7 @@ impl<'i> Scope<'i> {
                 if let Value::Num(num) = val {
                     let num = num.to_i64();
                     if let (Some(value_span), true) = (required, int != &num) {
-                        return Err(RuntimeError::multispan(
+                        return Err(BimoError::multispan(
                             format!("Num value does not match int pattern: {}", pattern),
                             vec![span.clone(), value_span.clone()],
                         ));
@@ -257,7 +199,7 @@ impl<'i> Scope<'i> {
                         Value::Bool(int == &num)
                     }
                 } else if let Some(value_span) = required {
-                    return Err(RuntimeError::multispan(
+                    return Err(BimoError::multispan(
                         format!(
                             "Attempted to match {} against int pattern: {}",
                             val.type_name(),
@@ -281,7 +223,7 @@ impl<'i> Scope<'i> {
                 if let Value::String(s) = val {
                     let captures = regex.captures(s);
                     if let (Some(value_span), None) = (required, captures.as_ref()) {
-                        return Err(RuntimeError::multispan(
+                        return Err(BimoError::multispan(
                             format!("String value does not match string pattern: {}", pattern),
                             vec![span.clone(), value_span.clone()],
                         ));
@@ -300,7 +242,7 @@ impl<'i> Scope<'i> {
                         Value::Nil
                     }
                 } else if let Some(value_span) = required {
-                    return Err(RuntimeError::multispan(
+                    return Err(BimoError::multispan(
                         format!(
                             "Attempted to match {} against string pattern: {}",
                             val.type_name(),
@@ -316,7 +258,7 @@ impl<'i> Scope<'i> {
                 let bound = f(val)?;
                 if let Some(value_span) = required {
                     if !bound.is_truthy() {
-                        return Err(RuntimeError::new(
+                        return Err(BimoError::new(
                             format!("{} does not match pattern: {}", val.type_name(), name),
                             value_span.clone(),
                         ));
@@ -331,12 +273,12 @@ impl<'i> Scope<'i> {
         pattern: &FieldPattern<'i>,
         source: Option<&Entity<'i>>,
         required: Option<&FileSpan<'i>>,
-    ) -> RuntimeResult<'i> {
+    ) -> BimoResult<'i> {
         Ok(match pattern {
             FieldPattern::SameName(field) => {
                 let val = source.and_then(|map| map.try_get(Key::Field(field.name)));
                 if let (Some(value_span), true) = (required, val.is_none()) {
-                    return Err(RuntimeError::multispan(
+                    return Err(BimoError::multispan(
                         format!("Entity does not contain field '{}' from pattern", field),
                         vec![field.span.clone(), value_span.clone()],
                     ));
@@ -351,7 +293,7 @@ impl<'i> Scope<'i> {
             } => {
                 let val = source.and_then(|map| map.try_get(Key::Field(field.name)));
                 if let (Some(value_span), true) = (required, val.is_none()) {
-                    return Err(RuntimeError::multispan(
+                    return Err(BimoError::multispan(
                         format!("Entity does not contain field '{}' from pattern", field),
                         vec![span.clone(), value_span.clone()],
                     ));
@@ -428,10 +370,10 @@ impl<'i> Runtime<'i> {
         &mut self,
         input: &'i str,
         file: impl AsRef<OsStr>,
-    ) -> RuntimeResult<'i, Items<'i>> {
+    ) -> BimoResult<'i, Items<'i>> {
         self.in_file(file, |rt| Ok(parse(rt, input, rt.curr_file())?))
     }
-    pub fn eval(&mut self, input: &'i str, file: impl AsRef<OsStr>) -> RuntimeResult<'i> {
+    pub fn eval(&mut self, input: &'i str, file: impl AsRef<OsStr>) -> BimoResult<'i> {
         self.in_file(file, |rt| {
             let items = parse(rt, input, rt.curr_file())?;
             rt.eval_items(&items)
@@ -445,20 +387,20 @@ impl<'i> Runtime<'i> {
         self.in_file(file, |rt| parse(rt, input, rt.curr_file()))?;
         Ok(())
     }
-    fn eval_items(&mut self, items: &[Item<'i>]) -> RuntimeResult<'i> {
+    fn eval_items(&mut self, items: &[Item<'i>]) -> BimoResult<'i> {
         let mut res = Value::Nil;
         for item in items {
             res = self.eval_item(item)?;
         }
         Ok(res)
     }
-    fn eval_item(&mut self, item: &Item<'i>) -> RuntimeResult<'i> {
+    fn eval_item(&mut self, item: &Item<'i>) -> BimoResult<'i> {
         match item {
             Item::Node(node) => self.eval_node(node),
             Item::FunctionDef(def) => self.eval_function_def(def),
         }
     }
-    fn eval_function_def(&mut self, def: &FunctionDef<'i>) -> RuntimeResult<'i> {
+    fn eval_function_def(&mut self, def: &FunctionDef<'i>) -> BimoResult<'i> {
         for param in &def.params {
             self.resolve_pattern(param)?;
         }
@@ -473,7 +415,7 @@ impl<'i> Runtime<'i> {
         self.scope.bind(&def.ident, val);
         Ok(Value::Nil)
     }
-    fn eval_node(&mut self, node: &Node<'i>) -> RuntimeResult<'i> {
+    fn eval_node(&mut self, node: &Node<'i>) -> BimoResult<'i> {
         match node {
             Node::Term(term, _) => self.eval_term(term),
             Node::BinExpr(expr) => self.eval_bin_expr(expr),
@@ -485,7 +427,7 @@ impl<'i> Runtime<'i> {
             Node::Bind(expr) => self.eval_bind_expr(expr),
         }
     }
-    fn resolve_pattern(&mut self, pattern: &Pattern<'i>) -> RuntimeResult<'i, ()> {
+    fn resolve_pattern(&mut self, pattern: &Pattern<'i>) -> BimoResult<'i, ()> {
         match pattern {
             Pattern::Value(ident) => {
                 self.scope.find_pattern(ident)?;
@@ -509,7 +451,7 @@ impl<'i> Runtime<'i> {
                     }
                     match Regex::new(&s) {
                         Ok(regex) => pattern.resolved = Some(regex.into()),
-                        Err(e) => return Err(RuntimeError::new(format!("{}", e), span.clone())),
+                        Err(e) => return Err(BimoError::new(format!("{}", e), span.clone())),
                     }
                 }
             }
@@ -522,18 +464,18 @@ impl<'i> Runtime<'i> {
         }
         Ok(())
     }
-    fn resolve_field_pattern(&mut self, pattern: &FieldPattern<'i>) -> RuntimeResult<'i, ()> {
+    fn resolve_field_pattern(&mut self, pattern: &FieldPattern<'i>) -> BimoResult<'i, ()> {
         if let FieldPattern::Pattern { pattern, .. } = pattern {
             self.resolve_pattern(pattern)?;
         }
         Ok(())
     }
-    fn eval_bind_expr(&mut self, expr: &BindExpr<'i>) -> RuntimeResult<'i> {
+    fn eval_bind_expr(&mut self, expr: &BindExpr<'i>) -> BimoResult<'i> {
         let val = self.eval_node(&expr.body)?;
         self.resolve_pattern(&expr.pattern)?;
         self.scope.bind_pattern(&expr.pattern, &val, None)
     }
-    fn eval_if_expr(&mut self, expr: &IfExpr<'i>) -> RuntimeResult<'i> {
+    fn eval_if_expr(&mut self, expr: &IfExpr<'i>) -> BimoResult<'i> {
         let condition = self.eval_node(&expr.condition)?;
         self.eval_node(if condition.is_truthy() {
             &expr.if_true
@@ -541,7 +483,7 @@ impl<'i> Runtime<'i> {
             &expr.if_false
         })
     }
-    fn eval_match_expr(&mut self, expr: &MatchExpr<'i>) -> RuntimeResult<'i> {
+    fn eval_match_expr(&mut self, expr: &MatchExpr<'i>) -> BimoResult<'i> {
         let matched = self.eval_node(&expr.matched)?;
         for case in &expr.cases {
             if self
@@ -554,7 +496,7 @@ impl<'i> Runtime<'i> {
         }
         Ok(Value::Nil)
     }
-    fn eval_term(&mut self, term: &Term<'i>) -> RuntimeResult<'i> {
+    fn eval_term(&mut self, term: &Term<'i>) -> BimoResult<'i> {
         Ok(match term {
             Term::Nil => Value::Nil,
             Term::Bool(b) => Value::Bool(*b),
@@ -588,7 +530,7 @@ impl<'i> Runtime<'i> {
                         }
                         Value::Entity(entity) => entity,
                         val => {
-                            return Err(RuntimeError::new(
+                            return Err(BimoError::new(
                                 format!(
                                     "Entity cannot be default initialized from {}",
                                     val.type_name()
@@ -644,21 +586,21 @@ impl<'i> Runtime<'i> {
             }
         })
     }
-    fn eval_access_expr(&mut self, expr: &AccessExpr<'i>) -> RuntimeResult<'i> {
+    fn eval_access_expr(&mut self, expr: &AccessExpr<'i>) -> BimoResult<'i> {
         let root = self.eval_node(&expr.root)?;
         Ok(match root {
             Value::Entity(map) => match &expr.accessor {
                 Accessor::Key(key) => map.get(key).clone(),
             },
             val => {
-                return Err(RuntimeError::new(
+                return Err(BimoError::new(
                     format!("{} does not have fields", val),
                     expr.span.clone(),
                 ))
             }
         })
     }
-    fn eval_bin_expr(&mut self, expr: &BinExpr<'i>) -> RuntimeResult<'i> {
+    fn eval_bin_expr(&mut self, expr: &BinExpr<'i>) -> BimoResult<'i> {
         let left = self.eval_node(&expr.left)?;
         let mut right = || self.eval_node(&expr.right);
         let bin_fn: BinFn = match expr.op {
@@ -678,13 +620,13 @@ impl<'i> Runtime<'i> {
         };
         bin_op_impl(expr.op, left, right()?, &expr.span, bin_fn)
     }
-    fn eval_un_expr(&mut self, expr: &UnExpr<'i>) -> RuntimeResult<'i> {
+    fn eval_un_expr(&mut self, expr: &UnExpr<'i>) -> BimoResult<'i> {
         let inner = self.eval_node(&expr.inner)?;
         Ok(match expr.op {
             UnOp::Neg => match inner {
                 Value::Num(n) => Value::Num(-n),
                 val => {
-                    return Err(RuntimeError::new(
+                    return Err(BimoError::new(
                         format!("Unable to negate {}", val.type_name()),
                         expr.span.clone(),
                     ))
@@ -692,12 +634,7 @@ impl<'i> Runtime<'i> {
             },
         })
     }
-    pub fn call<A>(
-        &mut self,
-        caller: &Value<'i>,
-        args: &[A],
-        span: &FileSpan<'i>,
-    ) -> RuntimeResult<'i>
+    pub fn call<A>(&mut self, caller: &Value<'i>, args: &[A], span: &FileSpan<'i>) -> BimoResult<'i>
     where
         A: Arg<'i>,
     {
@@ -767,7 +704,7 @@ impl<'i> Runtime<'i> {
                         }
                     }
                 } else {
-                    return Err(RuntimeError::new(
+                    return Err(BimoError::new(
                         format!("List cannot be indexed with {}", first_arg.type_name()),
                         span.clone(),
                     ));
@@ -783,14 +720,14 @@ impl<'i> Runtime<'i> {
                 self.scope.bind_pattern(pattern, &first_arg, None)?
             }
             val => {
-                return Err(RuntimeError::new(
+                return Err(BimoError::new(
                     format!("Unable to call {}", val.type_name()),
                     span.clone(),
                 ))
             }
         })
     }
-    fn eval_call(&mut self, expr: &CallExpr<'i>) -> RuntimeResult<'i> {
+    fn eval_call(&mut self, expr: &CallExpr<'i>) -> BimoResult<'i> {
         let caller = self.eval_node(&expr.caller)?;
         self.call(&caller, &expr.args, &expr.span)
     }
@@ -804,12 +741,12 @@ where
 }
 
 pub trait Arg<'i> {
-    fn eval(&self, runtime: &mut Runtime<'i>) -> RuntimeResult<'i>;
+    fn eval(&self, runtime: &mut Runtime<'i>) -> BimoResult<'i>;
     fn span(&self) -> Option<&FileSpan<'i>>;
 }
 
 impl<'i> Arg<'i> for Value<'i> {
-    fn eval(&self, _: &mut Runtime<'i>) -> RuntimeResult<'i> {
+    fn eval(&self, _: &mut Runtime<'i>) -> BimoResult<'i> {
         Ok(self.clone())
     }
     fn span(&self) -> Option<&FileSpan<'i>> {
@@ -818,7 +755,7 @@ impl<'i> Arg<'i> for Value<'i> {
 }
 
 impl<'i> Arg<'i> for Node<'i> {
-    fn eval(&self, runtime: &mut Runtime<'i>) -> RuntimeResult<'i> {
+    fn eval(&self, runtime: &mut Runtime<'i>) -> BimoResult<'i> {
         runtime.eval_node(self)
     }
     fn span(&self) -> Option<&FileSpan<'i>> {
@@ -834,13 +771,13 @@ fn bin_op_impl<'i>(
     right: Value<'i>,
     span: &FileSpan<'i>,
     f: BinFn<'i>,
-) -> RuntimeResult<'i> {
+) -> BimoResult<'i> {
     Ok(match (left, right) {
         (Value::Num(a), Value::Num(b)) => f(a, b),
         (a, b) => {
             let a = a.type_name();
             let b = b.type_name();
-            return Err(RuntimeError::new(
+            return Err(BimoError::new(
                 match op {
                     BinOp::Add => format!("Unable to add {} and {}", a, b),
                     BinOp::Sub => format!("Unable to subtract {} from {}", b, a),

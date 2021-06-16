@@ -4,8 +4,8 @@ use regex::Regex;
 
 use crate::{
     ast::{FileSpan, Ident, StringPart},
+    error::BimoResult,
     fmt::FormatSettings,
-    runtime::RuntimeResult,
     value::Value,
 };
 
@@ -47,7 +47,7 @@ pub enum Pattern<'i> {
         span: FileSpan<'i>,
     },
     Builtin {
-        f: Rc<dyn Fn(&Value<'i>) -> RuntimeResult<'i>>,
+        f: Rc<dyn Fn(&Value<'i>) -> BimoResult<'i>>,
         name: String,
     },
 }
@@ -55,7 +55,7 @@ pub enum Pattern<'i> {
 impl<'i> Pattern<'i> {
     pub fn builtin(
         name: impl Into<String>,
-        f: impl Fn(&Value<'i>) -> RuntimeResult<'i> + 'static,
+        f: impl Fn(&Value<'i>) -> BimoResult<'i> + 'static,
     ) -> Self {
         Pattern::Builtin {
             name: name.into(),

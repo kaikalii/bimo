@@ -11,10 +11,10 @@ use once_cell::sync::Lazy;
 
 use crate::{
     bimo_list,
+    error::{BimoError, BimoResult},
     list::List,
     num::Num,
     pattern::Pattern,
-    runtime::{RuntimeError, RuntimeResult},
     value::{static_str, RustFunction, Value},
 };
 
@@ -46,7 +46,7 @@ macro_rules! require_type {
             $($pattern => $expr,)*
             _ => {
                 let types = [$(stringify!($pattern)),*];
-                return Err(RuntimeError::new(
+                return Err(BimoError::new(
                     format!(
                         "Expected {}, but found {}",
                         types
@@ -191,20 +191,20 @@ functions!(
         let path = require_type!(path, span, Value::String(s) => PathBuf::from(&*s))
             .with_extension("bimo");
         thread_local! {
-            static LOADED_MODULES: RefCell<HashMap<PathBuf, RuntimeResult<'static>>> = HashMap::new().into();
+            static LOADED_MODULES: RefCell<HashMap<PathBuf, BimoResult<'static>>> = HashMap::new().into();
         }
         LOADED_MODULES.with(|map| match map.try_borrow_mut() {
             Ok(mut map) => map
                 .entry(path)
                 .or_insert_with_key(|path| match fs::read_to_string(&path) {
                     Ok(code) => rt.eval(static_str(&code), path),
-                    Err(e) => Err(RuntimeError::new(
+                    Err(e) => Err(BimoError::new(
                         format!("Error opening {}: {}", path.to_string_lossy(), e),
                         span.clone(),
                     )),
                 })
                 .clone(),
-            Err(_) => Err(RuntimeError::new(
+            Err(_) => Err(BimoError::new(
                 format!(
                     "Circular dependency detected when loading {}",
                     path.to_string_lossy()
