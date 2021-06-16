@@ -1,22 +1,10 @@
-use std::{fs::OpenOptions, io::Read, path::Path};
+use std::{fs, path::Path};
 
 use crate::{
     ast::{FunctionDef, Item, Items, Node, Term, UnOp},
     error::{BimoError, BimoResult},
     runtime::Runtime,
 };
-
-pub fn format<'i>(path: impl AsRef<Path>) -> BimoResult<'i, ()> {
-    let mut file = OpenOptions::new().read(true).write(true).open(&path)?;
-    let mut input = String::new();
-    file.read_to_string(&mut input)?;
-    let mut runtime = Runtime::new();
-    let items = runtime
-        .parse(&input, path.as_ref())
-        .map_err(BimoError::change_lifetime)?;
-
-    Ok(())
-}
 
 #[derive(Debug, Clone)]
 pub struct FormatSettings {
@@ -26,6 +14,18 @@ pub struct FormatSettings {
 impl Default for FormatSettings {
     fn default() -> Self {
         FormatSettings { max_width: 100 }
+    }
+}
+
+impl FormatSettings {
+    pub fn format<'i>(&self, path: impl AsRef<Path>) -> BimoResult<'i, ()> {
+        let mut input = fs::read_to_string(&path)?;
+        let mut runtime = Runtime::new();
+        let items = runtime
+            .parse(&input, path.as_ref())
+            .map_err(BimoError::change_lifetime)?;
+        fs::write(path, items.string(&mut 0, self).as_bytes())?;
+        Ok(())
     }
 }
 
@@ -84,6 +84,22 @@ impl<'a> Fragment<'a> {
 
 pub trait Formattable {
     fn fragments(&self) -> Vec<Fragment>;
+    fn string(&self, indent: &mut usize, settings: &FormatSettings) -> String {
+        let mut line = format!("{:indent$}", "", indent = *indent * 4);
+        for frag in self.fragments() {
+            if let Some(prefix) = frag.prefix {
+                line.push_str(&prefix);
+            }
+            match frag.frag {
+                Frag::String(s) => line.push_str(&s),
+                Frag::Child(child) => line.push_str(&child.string(&mut 0, settings)),
+            }
+            if let Some(sep) = frag.one_sep {
+                line.push_str(&sep);
+            }
+        }
+        line
+    }
 }
 
 impl<T> Formattable for Box<T>
@@ -106,6 +122,7 @@ impl<'i> Formattable for Term<'i> {
             Term::String(_) => {
                 todo!()
             }
+            Term::Ident(ident) => frags.push(Fragment::str(ident.name)),
             Term::List(nodes) => {
                 frags.push(Fragment::str("["));
                 for node in nodes {
@@ -113,7 +130,7 @@ impl<'i> Formattable for Term<'i> {
                 }
                 frags.push(Fragment::str("]"));
             }
-            _ => todo!(),
+            term => todo!("{:?}", term),
         }
         frags
     }
@@ -123,6 +140,7 @@ impl<'i> Formattable for Node<'i> {
     fn fragments(&self) -> Vec<Fragment> {
         let mut frags = Vec::new();
         match self {
+            Node::Term(term, ..) => return term.fragments(),
             Node::If(expr) => {
                 frags.push(Fragment::str("if"));
                 frags.push(Fragment::child(&expr.condition).one_sep(" then "));
@@ -148,7 +166,7 @@ impl<'i> Formattable for Node<'i> {
                 }
                 frags.push(Fragment::str(")"));
             }
-            _ => todo!(),
+            node => todo!("{:?}", node),
         }
         frags
     }

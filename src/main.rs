@@ -18,6 +18,8 @@ use std::{path::PathBuf, process::*};
 use clap::Clap;
 use walkdir::DirEntry;
 
+use crate::formatter::FormatSettings;
+
 fn main() {
     use crate::runtime::Runtime;
 
@@ -32,18 +34,19 @@ fn main() {
                 let targets = if let Some(target) = target {
                     vec![target]
                 } else {
-                    walkdir::WalkDir::new("")
+                    walkdir::WalkDir::new(".")
                         .into_iter()
                         .filter_map(Result::ok)
                         .filter(|entry| {
-                            entry.file_type().is_dir()
+                            entry.file_type().is_file()
                                 && entry.path().extension().map_or(false, |ext| ext == "bimo")
                         })
                         .map(DirEntry::into_path)
                         .collect()
                 };
+                let settings = FormatSettings::default();
                 for target in targets {
-                    if let Err(e) = formatter::format(&target) {
+                    if let Err(e) = settings.format(&target) {
                         println!("Error formatting {}\n{}", target.to_string_lossy(), e);
                     }
                 }
