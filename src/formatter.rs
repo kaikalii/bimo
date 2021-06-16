@@ -9,126 +9,193 @@ use crate::{
 #[derive(Debug, Clone)]
 pub struct FormatSettings {
     pub max_width: usize,
+    pub write: bool,
 }
 
 impl Default for FormatSettings {
     fn default() -> Self {
-        FormatSettings { max_width: 100 }
+        // FormatSettings { max_width: 100 }
+        FormatSettings {
+            max_width: 15,
+            write: false,
+        }
     }
 }
 
 impl FormatSettings {
     pub fn format<'i>(&self, path: impl AsRef<Path>) -> BimoResult<'i, ()> {
-        let mut input = fs::read_to_string(&path)?;
+        let input = fs::read_to_string(&path)?;
         let mut runtime = Runtime::new();
         let items = runtime
             .parse(&input, path.as_ref())
             .map_err(BimoError::change_lifetime)?;
-        fs::write(path, items.string(&mut 0, self).as_bytes())?;
+
+        if let Some(text) = items.format(self.max_width) {
+            if self.write {
+                fs::write(path, text.as_bytes())?;
+            } else {
+                let path_str = path.as_ref().to_string_lossy();
+                println!(
+                    "{}\n{:-<width$}\n{}\n",
+                    path_str,
+                    "",
+                    text,
+                    width = path_str.len()
+                );
+            }
+        }
+
         Ok(())
     }
 }
 
-enum Frag<'a> {
-    Child(&'a dyn Formattable),
-    String(String),
+#[derive(Debug)]
+struct Frag {
+    string: String,
+    depth: usize,
+    on_multi: bool,
+    on_single: bool,
+    indent: bool,
+    deindent: bool,
 }
 
-pub struct Fragment<'a> {
-    frag: Frag<'a>,
-    prefix: Option<String>,
-    one_sep: Option<String>,
-    multi_sep: Option<(String, bool)>,
-}
-
-impl<'a> Fragment<'a> {
-    pub fn str(s: impl Into<String>) -> Self {
-        Fragment {
-            frag: Frag::String(s.into()),
-            one_sep: None,
-            multi_sep: None,
-            prefix: None,
+impl Frag {
+    fn new(string: impl ToString, depth: usize) -> Self {
+        Frag {
+            string: string.to_string(),
+            depth,
+            on_multi: true,
+            on_single: true,
+            indent: false,
+            deindent: false,
         }
     }
-    pub fn child(child: &'a impl Formattable) -> Self {
-        Fragment {
-            frag: Frag::Child(child),
-            one_sep: None,
-            multi_sep: None,
-            prefix: None,
-        }
+    fn open(depth: usize) -> Self {
+        Frag::new("\n", depth).indent().multi_only()
     }
-    pub fn one_sep(self, sep: impl Into<String>) -> Self {
-        Fragment {
-            one_sep: Some(sep.into()),
+    fn close(depth: usize) -> Self {
+        Frag::new("\n", depth).deindent().multi_only()
+    }
+    fn newline(depth: usize) -> Self {
+        Frag::new("\n", depth).multi_only()
+    }
+    fn indent(self) -> Self {
+        Frag {
+            indent: true,
             ..self
         }
     }
-    pub fn multi_sep(self, same_line: impl Into<String>, indent: bool) -> Self {
-        Fragment {
-            multi_sep: Some((same_line.into(), indent)),
+    fn deindent(self) -> Self {
+        Frag {
+            deindent: true,
             ..self
         }
     }
-    pub fn prefix(self, prefix: impl Into<String>) -> Self {
-        Fragment {
-            prefix: Some(prefix.into()),
+    fn single_only(self) -> Self {
+        Frag {
+            on_multi: false,
             ..self
         }
     }
-    pub fn either_sep(self, sep: impl Into<String>, indent: bool) -> Self {
-        let sep = sep.into();
-        self.one_sep(sep.clone()).multi_sep(sep, indent)
+    fn multi_only(self) -> Self {
+        Frag {
+            on_single: false,
+            ..self
+        }
     }
 }
 
-pub trait Formattable {
-    fn fragments(&self) -> Vec<Fragment>;
-    fn string(&self, indent: &mut usize, settings: &FormatSettings) -> String {
-        let mut line = format!("{:indent$}", "", indent = *indent * 4);
-        for frag in self.fragments() {
-            if let Some(prefix) = frag.prefix {
-                line.push_str(&prefix);
+trait Formattable {
+    fn fragments(&self, depth: usize) -> Vec<Frag>;
+    fn format(&self, max_width: usize) -> Option<String> {
+        let frags = self.fragments(0);
+        let mut formatted = None;
+        for depth in 0..5 {
+            println!("\ndepth: {}", depth);
+            let mut indent = 0;
+            let mut text = String::new();
+            let mut push_indent = false;
+            for frag in &frags {
+                let multiline = depth > frag.depth;
+                if multiline && !frag.on_multi || !multiline && !frag.on_single {
+                    continue;
+                }
+                if push_indent && !frag.string.trim().is_empty() {
+                    text.push_str(&dbg!(tabs(indent)));
+                    push_indent = false;
+                    println!("pushed indent");
+                }
+                println!("{:?}", frag);
+                if frag.indent {
+                    indent += 1;
+                    println!("indent -> {}", indent);
+                }
+                if frag.deindent {
+                    indent -= 1;
+                    println!("deindent -> {}", indent);
+                }
+                text.push_str(&frag.string);
+                if frag.string.contains('\n') {
+                    push_indent = true;
+                    println!("can push indent");
+                }
             }
-            match frag.frag {
-                Frag::String(s) => line.push_str(&s),
-                Frag::Child(child) => line.push_str(&child.string(&mut 0, settings)),
-            }
-            if let Some(sep) = frag.one_sep {
-                line.push_str(&sep);
+
+            text = text
+                .lines()
+                .map(|line| format!("{}\n", line.trim_end()))
+                .collect();
+            println!("text:\n{}\n", text);
+
+            if text.lines().all(|line| line.len() < max_width) {
+                formatted = Some(text);
+                break;
             }
         }
-        line
+        formatted
     }
+}
+
+fn tabs(n: usize) -> String {
+    format!("{:tabs$}", "", tabs = n * 4)
 }
 
 impl<T> Formattable for Box<T>
 where
     T: Formattable,
 {
-    fn fragments(&self) -> Vec<Fragment> {
-        (&**self).fragments()
+    fn fragments(&self, depth: usize) -> Vec<Frag> {
+        (&**self).fragments(depth)
     }
 }
 
 impl<'i> Formattable for Term<'i> {
-    fn fragments(&self) -> Vec<Fragment> {
+    fn fragments(&self, depth: usize) -> Vec<Frag> {
         let mut frags = Vec::new();
         match self {
-            Term::Nil => frags.push(Fragment::str("nil")),
-            Term::Bool(b) => frags.push(Fragment::str(b.to_string())),
-            Term::Int(i) => frags.push(Fragment::str(i.to_string())),
-            Term::Real(r) => frags.push(Fragment::str(r.to_string())),
+            Term::Nil => frags.push(Frag::new("nil", depth)),
+            Term::Bool(b) => frags.push(Frag::new(b, depth)),
+            Term::Int(i) => frags.push(Frag::new(i, depth)),
+            Term::Real(r) => frags.push(Frag::new(r, depth)),
             Term::String(_) => {
                 todo!()
             }
-            Term::Ident(ident) => frags.push(Fragment::str(ident.name)),
+            Term::Ident(ident) => frags.push(Frag::new(ident.name, depth)),
             Term::List(nodes) => {
-                frags.push(Fragment::str("["));
-                for node in nodes {
-                    frags.push(Fragment::child(node).one_sep(","));
+                frags.push(Frag::new("[", depth));
+                frags.push(Frag::open(depth));
+                for (i, node) in nodes.iter().enumerate() {
+                    frags.extend(node.fragments(depth + 1));
+                    if i < nodes.len() - 1 {
+                        frags.push(Frag::new(",", depth + 1));
+                        frags.push(Frag::new(" ", depth + 1).single_only());
+                        frags.push(Frag::newline(depth + 1).multi_only());
+                    } else {
+                        frags.push(Frag::new(",", depth + 1).multi_only());
+                    }
                 }
-                frags.push(Fragment::str("]"));
+                frags.push(Frag::close(depth));
+                frags.push(Frag::new("]", depth));
             }
             term => todo!("{:?}", term),
         }
@@ -137,34 +204,53 @@ impl<'i> Formattable for Term<'i> {
 }
 
 impl<'i> Formattable for Node<'i> {
-    fn fragments(&self) -> Vec<Fragment> {
+    fn fragments(&self, depth: usize) -> Vec<Frag> {
         let mut frags = Vec::new();
         match self {
-            Node::Term(term, ..) => return term.fragments(),
+            Node::Term(term, ..) => return term.fragments(depth),
             Node::If(expr) => {
-                frags.push(Fragment::str("if"));
-                frags.push(Fragment::child(&expr.condition).one_sep(" then "));
-                frags.push(Fragment::child(&expr.if_true));
-                frags.push(Fragment::str("else"));
-                frags.push(Fragment::child(&expr.if_false));
+                frags.push(Frag::new("if ", depth));
+                frags.extend(expr.condition.fragments(depth + 2));
+                frags.push(Frag::new(" then ", depth + 1).single_only());
+                frags.push(Frag::open(depth + 1));
+                frags.extend(expr.if_true.fragments(depth + 2));
+                frags.push(Frag::close(depth + 1));
+                frags.push(Frag::new(" ", depth).single_only());
+                frags.push(Frag::new("else ", depth));
+                frags.push(Frag::open(depth + 1));
+                frags.extend(expr.if_false.fragments(depth + 2));
+                frags.push(Frag::close(depth + 1));
             }
             Node::BinExpr(expr) => {
-                frags.push(
-                    Fragment::child(&expr.left)
-                        .one_sep(format!(" {} ", expr.op_span.as_str()))
-                        .multi_sep(format!(" {}", expr.op_span.as_str()), true),
-                );
-                frags.push(Fragment::child(&expr.right));
+                frags.extend(expr.left.fragments(depth));
+                frags.push(Frag::open(depth));
+                frags.push(Frag::new(format!(" {} ", expr.op_span.as_str()), depth + 1));
+                frags.extend(expr.right.fragments(depth + 1));
+                frags.push(Frag::close(depth));
             }
-            Node::UnExpr(expr) => frags.push(Fragment::child(&expr.inner).prefix(match expr.op {
-                UnOp::Neg => "-",
-            })),
+            Node::UnExpr(expr) => {
+                let op = match expr.op {
+                    UnOp::Neg => "-",
+                };
+                frags.push(Frag::new(op, depth));
+                frags.extend(expr.inner.fragments(depth));
+            }
             Node::Call(expr) => {
-                frags.push(Fragment::child(&expr.caller).either_sep("(", true));
-                for node in &expr.args {
-                    frags.push(Fragment::child(node).one_sep(", ").multi_sep(",", false))
+                frags.extend(expr.caller.fragments(depth));
+                frags.push(Frag::new("(", depth));
+                frags.push(Frag::open(depth));
+                for (i, node) in expr.args.iter().enumerate() {
+                    frags.extend(node.fragments(depth + 1));
+                    if i < expr.args.len() - 1 {
+                        frags.push(Frag::new(",", depth + 1));
+                        frags.push(Frag::new(" ", depth + 1).single_only());
+                        frags.push(Frag::newline(depth + 1).multi_only());
+                    } else {
+                        frags.push(Frag::new(",", depth + 1).multi_only());
+                    }
                 }
-                frags.push(Fragment::str(")"));
+                frags.push(Frag::close(depth));
+                frags.push(Frag::new(")", depth));
             }
             node => todo!("{:?}", node),
         }
@@ -173,24 +259,27 @@ impl<'i> Formattable for Node<'i> {
 }
 
 impl<'i> Formattable for FunctionDef<'i> {
-    fn fragments(&self) -> Vec<Fragment> {
+    fn fragments(&self, _depth: usize) -> Vec<Frag> {
         todo!()
     }
 }
 
 impl<'i> Formattable for Item<'i> {
-    fn fragments(&self) -> Vec<Fragment> {
+    fn fragments(&self, depth: usize) -> Vec<Frag> {
         match self {
-            Item::Node(node) => node.fragments(),
-            Item::FunctionDef(def) => def.fragments(),
+            Item::Node(node) => node.fragments(depth),
+            Item::FunctionDef(def) => def.fragments(depth),
         }
     }
 }
 
 impl<'i> Formattable for Items<'i> {
-    fn fragments(&self) -> Vec<Fragment> {
-        self.iter()
-            .map(|item| Fragment::child(item).either_sep("\n", false))
-            .collect()
+    fn fragments(&self, depth: usize) -> Vec<Frag> {
+        let mut frags = Vec::new();
+        for item in self {
+            frags.extend(item.fragments(depth));
+            frags.push(Frag::new("\n", depth));
+        }
+        frags
     }
 }

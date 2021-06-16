@@ -36,7 +36,7 @@ starts_with_keyword = @{ keyword ~ ("_"* ~ ident_tail+)+ }
 ident = { !keyword ~ ident_inner | starts_with_keyword | "_" }
 
 // Container literals
-list_literal = { "[" ~ (expr ~ sep)* ~ (expr ~ NEWLINE*)? ~ "]" }
+list_literal = { "[" ~ NEWLINE? ~ (expr ~ sep)* ~ (expr ~ NEWLINE*)? ~ "]" }
 entity_default = { ".." ~ expr }
 entity_item = { tag_literal | expr ~ "=>" ~ expr | binding | entity_default | function_def | ident }
 entity_literal = { "{" ~ NEWLINE? ~ (entity_item ~ sep)* ~ (entity_item ~ NEWLINE*)? ~ "}" }
