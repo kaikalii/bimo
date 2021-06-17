@@ -219,7 +219,6 @@ impl Permutation {
 }
 
 trait Formattable {
-    fn name() -> &'static str;
     fn permutations(&self, indent: usize, settings: &FormatSettings) -> Vec<Permutation>;
     fn best_permutation(&self, indent: usize, settings: &FormatSettings) -> Permutation {
         let perms = self.permutations(indent, settings);
@@ -248,18 +247,12 @@ trait Bracketed: Formattable {
 }
 
 impl Formattable for Vec<Permutation> {
-    fn name() -> &'static str {
-        "permutations"
-    }
     fn permutations(&self, _indent: usize, _settings: &FormatSettings) -> Vec<Permutation> {
         self.clone()
     }
 }
 
 impl Formattable for Permutation {
-    fn name() -> &'static str {
-        "permutation"
-    }
     fn permutations(&self, _indent: usize, _settings: &FormatSettings) -> Vec<Permutation> {
         vec![self.clone()]
     }
@@ -273,18 +266,12 @@ impl<T> Formattable for Box<T>
 where
     T: Formattable,
 {
-    fn name() -> &'static str {
-        T::name()
-    }
     fn permutations(&self, indent: usize, settings: &FormatSettings) -> Vec<Permutation> {
         (&**self).permutations(indent, settings)
     }
 }
 
 impl<'i> Formattable for Term<'i> {
-    fn name() -> &'static str {
-        "term"
-    }
     fn permutations(&self, indent: usize, settings: &FormatSettings) -> Vec<Permutation> {
         match self {
             Term::Nil => Permutation::only("nil", indent),
@@ -366,9 +353,6 @@ impl<'i> Formattable for Term<'i> {
 }
 
 impl<'i> Formattable for Entry<'i> {
-    fn name() -> &'static str {
-        "entry"
-    }
     fn permutations(&self, indent: usize, settings: &FormatSettings) -> Vec<Permutation> {
         match self {
             Entry::SameName(ident) => Permutation::only(ident.name, indent),
@@ -388,9 +372,6 @@ impl<'i> Formattable for Entry<'i> {
 }
 
 impl<'i> Formattable for Vec<StringPart<'i>> {
-    fn name() -> &'static str {
-        "string"
-    }
     fn permutations(&self, indent: usize, settings: &FormatSettings) -> Vec<Permutation> {
         let is_format = self
             .iter()
@@ -422,9 +403,6 @@ impl<'i> Formattable for Vec<StringPart<'i>> {
 }
 
 impl<'i> Formattable for Vec<Vec<StringPart<'i>>> {
-    fn name() -> &'static str {
-        "string"
-    }
     fn permutations(&self, indent: usize, settings: &FormatSettings) -> Vec<Permutation> {
         self.iter().fold(vec![Permutation::new()], |perms, parts| {
             Permutation::join(perms, parts.permutations(indent, settings), |a, b| {
@@ -435,9 +413,6 @@ impl<'i> Formattable for Vec<Vec<StringPart<'i>>> {
 }
 
 impl<'i> Formattable for Pattern<'i> {
-    fn name() -> &'static str {
-        "pattern"
-    }
     fn permutations(&self, indent: usize, settings: &FormatSettings) -> Vec<Permutation> {
         match self {
             Pattern::Single(ident) | Pattern::Value(ident) => Permutation::only(ident.name, indent),
@@ -483,9 +458,6 @@ impl<'i> Bracketed for Pattern<'i> {
 }
 
 impl<'i> Formattable for FieldPattern<'i> {
-    fn name() -> &'static str {
-        "field_pattern"
-    }
     fn permutations(&self, indent: usize, settings: &FormatSettings) -> Vec<Permutation> {
         match self {
             FieldPattern::SameName(ident) => Permutation::only(ident.name, indent),
@@ -500,9 +472,6 @@ impl<'i> Formattable for FieldPattern<'i> {
 }
 
 impl<'i> Formattable for Node<'i> {
-    fn name() -> &'static str {
-        "node"
-    }
     fn permutations(&self, indent: usize, settings: &FormatSettings) -> Vec<Permutation> {
         match self {
             Node::Term(term, ..) => term.permutations(indent, settings),
@@ -615,9 +584,6 @@ impl<'i> Bracketed for Node<'i> {
 }
 
 impl<'i> Formattable for Accessor<'i> {
-    fn name() -> &'static str {
-        "accessor"
-    }
     fn permutations(&self, indent: usize, _settings: &FormatSettings) -> Vec<Permutation> {
         match self {
             Accessor::Key(key) => match key {
@@ -635,9 +601,6 @@ impl<'i> Bracketed for Accessor<'i> {
 }
 
 impl Formattable for str {
-    fn name() -> &'static str {
-        "str"
-    }
     fn permutations(&self, indent: usize, _settings: &FormatSettings) -> Vec<Permutation> {
         Permutation::only(self, indent)
     }
@@ -650,9 +613,6 @@ impl Bracketed for str {
 }
 
 impl<'i> Formattable for BindExpr<'i> {
-    fn name() -> &'static str {
-        "bind"
-    }
     fn permutations(&self, indent: usize, settings: &FormatSettings) -> Vec<Permutation> {
         let left = self
             .pattern
@@ -664,9 +624,6 @@ impl<'i> Formattable for BindExpr<'i> {
 }
 
 impl<'i> Formattable for FunctionDef<'i> {
-    fn name() -> &'static str {
-        "function_def"
-    }
     fn permutations(&self, indent: usize, settings: &FormatSettings) -> Vec<Permutation> {
         let left = Permutation::new()
             .line(self.ident.name, indent)
@@ -683,9 +640,6 @@ impl<'i> Formattable for FunctionDef<'i> {
 }
 
 impl<'i> Formattable for Item<'i> {
-    fn name() -> &'static str {
-        "item"
-    }
     fn permutations(&self, indent: usize, settings: &FormatSettings) -> Vec<Permutation> {
         match self {
             Item::Node(node) => node.permutations(indent, settings),
@@ -695,9 +649,6 @@ impl<'i> Formattable for Item<'i> {
 }
 
 impl<'i> Formattable for Items<'i> {
-    fn name() -> &'static str {
-        "items"
-    }
     fn permutations(&self, indent: usize, settings: &FormatSettings) -> Vec<Permutation> {
         vec![self.iter().fold(Permutation::new(), |perm, item| {
             perm.extend(item.best_permutation(indent, settings))
