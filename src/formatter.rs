@@ -575,7 +575,24 @@ impl<'i> Formattable for Node<'i> {
                     }
                 })
             }
-            _ => todo!(),
+            Node::Match(expr) => Permutation::new().line("match ", indent).join_with(
+                expr.matched.permutations(indent, settings),
+                |init, perm| {
+                    let cases = expr
+                        .cases
+                        .iter()
+                        .fold(vec![Permutation::new()], |perms, case| {
+                            let pattern = Permutation::join(
+                                perms,
+                                case.pattern.permutations(indent + 1, settings),
+                                |prev, pat| Some(prev.extend(pat)),
+                            );
+                            Permutation::body(pattern, &case.body, indent + 1, settings)
+                        });
+                    init.append_perm(perm)
+                        .join_with(cases, |a, b| Some(a.extend(b)))
+                },
+            ),
         }
     }
 }

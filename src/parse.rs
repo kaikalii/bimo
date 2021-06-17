@@ -419,6 +419,9 @@ impl<'i> ParseState<'i> {
         let matched = self.expr(pairs.next().unwrap());
         let mut cases = Vec::new();
         while let Some(pattern) = pairs.next() {
+            if pattern.as_rule() == Rule::EOI {
+                break;
+            }
             let body = pairs.next().unwrap();
             self.push_paren_scope();
             let pattern = self.rebindable_pattern(pattern);
