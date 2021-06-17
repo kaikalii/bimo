@@ -17,7 +17,7 @@ pub struct FormatSettings {
 impl Default for FormatSettings {
     fn default() -> Self {
         FormatSettings {
-            max_width: 20,
+            max_width: 40,
             write: false,
         }
     }
@@ -154,7 +154,7 @@ impl Permutation {
     {
         Permutation::join(Some(self), b, join)
     }
-    fn sep_list<T, F>(
+    fn sep_list<T, F, I>(
         self,
         indent: usize,
         settings: &FormatSettings,
@@ -164,7 +164,8 @@ impl Permutation {
     ) -> Vec<Permutation>
     where
         T: Formattable,
-        F: Fn(Permutation, bool) -> Vec<Permutation>,
+        F: Fn(Permutation, bool) -> I,
+        I: IntoIterator<Item = Self>,
     {
         let mut single = self.clone();
         for (i, item) in items.iter().enumerate() {
@@ -244,6 +245,24 @@ trait Formattable {
 
 trait Bracketed: Formattable {
     fn is_bracketed(&self) -> bool;
+}
+
+impl Formattable for Vec<Permutation> {
+    fn name() -> &'static str {
+        "permutations"
+    }
+    fn permutations(&self, _indent: usize, _settings: &FormatSettings) -> Vec<Permutation> {
+        self.clone()
+    }
+}
+
+impl Formattable for Permutation {
+    fn name() -> &'static str {
+        "permutation"
+    }
+    fn permutations(&self, _indent: usize, _settings: &FormatSettings) -> Vec<Permutation> {
+        vec![self.clone()]
+    }
 }
 
 fn tabs(n: usize) -> String {
@@ -534,20 +553,26 @@ impl<'i> Formattable for Node<'i> {
                     expr.condition.permutations(indent, settings),
                     |init, condition| Some(init.append_perm(condition).append_str(" then ")),
                 );
-                let condition = Permutation::body(condition, "", indent, settings);
-                let top = Permutation::body(condition, &*expr.if_true, indent, settings);
-                let bottom = Permutation::body(
-                    vec![Permutation::new().line(" else ", indent)],
+                let condition_and_if_true =
+                    Permutation::body(condition, &*expr.if_true, indent, settings);
+                let else_and_if_false = Permutation::body(
+                    Some(Permutation::new().line("else ", indent)),
                     &*expr.if_false,
                     indent,
                     settings,
                 );
-                Permutation::join(top, bottom, |top, bottom| {
-                    Some(if top.is_line() && bottom.is_line() {
-                        top.append_perm(bottom)
+                Permutation::join(condition_and_if_true, else_and_if_false, |a, b| {
+                    if a.is_line() && b.is_line() {
+                        Permutation::new().sep_list(
+                            indent,
+                            settings,
+                            ("", ""),
+                            &[a, b],
+                            |perm, _| Some(perm),
+                        )
                     } else {
-                        top.extend(bottom)
-                    })
+                        vec![a.extend(b)]
+                    }
                 })
             }
             _ => todo!(),
