@@ -17,7 +17,7 @@ pub struct FormatSettings {
 impl Default for FormatSettings {
     fn default() -> Self {
         FormatSettings {
-            max_width: 40,
+            max_width: 20,
             write: false,
         }
     }
@@ -546,7 +546,11 @@ impl<'i> Formattable for Node<'i> {
             Node::Bind(expr) => expr.permutations(indent, settings),
             Node::Access(expr) => {
                 let root = expr.root.permutations(indent, settings);
-                Permutation::body(root, &expr.accessor, indent, settings)
+                Permutation::join(
+                    root,
+                    expr.accessor.permutations(indent + 1, settings),
+                    |a, b| vec![a.clone().append_perm(b.clone()), a.extend(b)],
+                )
             }
             Node::If(expr) => {
                 let condition = Permutation::new().line("if ", indent).join_with(
@@ -575,24 +579,25 @@ impl<'i> Formattable for Node<'i> {
                     }
                 })
             }
-            Node::Match(expr) => Permutation::new().line("match ", indent).join_with(
-                expr.matched.permutations(indent, settings),
-                |init, perm| {
-                    let cases = expr
-                        .cases
-                        .iter()
-                        .fold(vec![Permutation::new()], |perms, case| {
-                            let pattern = Permutation::join(
-                                perms,
-                                case.pattern.permutations(indent + 1, settings),
-                                |prev, pat| Some(prev.extend(pat)),
-                            );
-                            Permutation::body(pattern, &case.body, indent + 1, settings)
-                        });
-                    init.append_perm(perm)
-                        .join_with(cases, |a, b| Some(a.extend(b)))
-                },
-            ),
+            Node::Match(expr) => {
+                let matched = Permutation::new()
+                    .line("match ", indent)
+                    .append_perm(expr.matched.best_permutation(indent, settings));
+                vec![expr.cases.iter().fold(matched, |prev, case| {
+                    prev.extend(
+                        Permutation::body(
+                            case.pattern
+                                .permutations(indent + 1, settings)
+                                .into_iter()
+                                .map(|perm| perm.append_str(" => ")),
+                            &case.body,
+                            indent + 1,
+                            settings,
+                        )
+                        .best_permutation(indent, settings),
+                    )
+                })]
+            }
         }
     }
 }
@@ -601,7 +606,10 @@ impl<'i> Bracketed for Node<'i> {
     fn is_bracketed(&self) -> bool {
         matches!(
             self,
-            Node::Term(Term::Expr(_), _) | Node::Term(Term::Entity { .. }, _) | Node::Call(_)
+            Node::Term(Term::Expr(_), _)
+                | Node::Term(Term::Entity { .. }, _)
+                | Node::Call(_)
+                | Node::Access(_)
         )
     }
 }
