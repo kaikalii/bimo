@@ -73,7 +73,7 @@ expr_cmp = { expr_as ~ (op_comp ~ expr_as)* }
 expr_bind = { binding | expr_cmp }
 expr_and = { expr_bind ~ (NEWLINE? ~ op_and ~ NEWLINE? ~ expr_bind)* }
 expr_or = { expr_and ~ (NEWLINE? ~ op_or ~ NEWLINE? ~ expr_and)* }
-expr_if = { "if" ~ expr ~ "then"? ~ NEWLINE? ~ expr ~ NEWLINE? ~ "else" ~ NEWLINE? ~ expr }
+expr_if = { "if" ~ expr ~ "then" ~ NEWLINE? ~ expr ~ NEWLINE? ~ "else" ~ NEWLINE? ~ expr }
 expr_match = { "match" ~ expr ~ NEWLINE ~ (rebindable_pattern ~ "=>" ~ NEWLINE? ~ expr ~ (NEWLINE | EOI))+ }
 expr = { expr_if | expr_match | expr_or }
 
