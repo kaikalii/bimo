@@ -17,7 +17,7 @@ pub struct FormatSettings {
 impl Default for FormatSettings {
     fn default() -> Self {
         FormatSettings {
-            max_width: 25,
+            max_width: 100,
             write: false,
         }
     }
@@ -379,21 +379,13 @@ impl<'i> Formattable for Term<'i> {
                     })
             }
             Term::Closure(closure) => {
-                let params = if closure.params.len() == 1 {
-                    closure.params[0]
-                        .permutations(state, settings)
-                        .into_iter()
-                        .map(|perm| perm.append_str("| "))
-                        .collect()
-                } else {
-                    Permutation::new().line("|", state.indent).sep_list(
-                        state,
-                        settings,
-                        (",", ","),
-                        &closure.params,
-                        |perm, multiline| vec![perm.maybe_append("|", state.indent, multiline)],
-                    )
-                };
+                let params = Permutation::new().line("|", state.indent).sep_list(
+                    state,
+                    settings,
+                    (",", ","),
+                    &closure.params,
+                    |perm, multiline| vec![perm.maybe_append("| ", state.indent, multiline)],
+                );
                 Permutation::body(params, &closure.body, state, settings)
             }
         }
