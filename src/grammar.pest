@@ -52,7 +52,7 @@ op_neg = { "-" }
 // Terms
 paren_expr = { "(" ~ NEWLINE* ~ items ~ ")" }
 param = { rebindable_pattern }
-closure_params = { (param | "|" ~ (param ~ sep)* ~ (param ~ NEWLINE*)?) ~ "|" }
+closure_params = { "|" ~ (param ~ sep)* ~ (param ~ NEWLINE*)? ~ "|" }
 closure = { closure_params ~ NEWLINE? ~ expr }
 tag_literal = ${ "#" ~ ident }
 pattern_literal = ${ "?" ~ pattern | regex }
